@@ -296,6 +296,8 @@ function strlen($str)
 
 function explode($sep, $str)
 {
+  // For EMPTY $str return [] instead of [0:""]
+  if($str=="") return [];
   if(typeof($str) !== "undefined"){
     return $str.split($sep);
   }
