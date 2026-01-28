@@ -1,0 +1,98 @@
+{
+  "_comment": "Component Build Configuration for Coverity/Native Builds",
+  "_version": "2.0",
+  "_description": "Defines dependencies and build settings for the native component",
+  
+"dependencies": {
+    "_comment": "External repositories needed by this component",
+    "repos": [
+      {
+        "name": "rdk_logger",
+        "repo": "https://github.com/rdkcentral/rdk_logger.git",
+        "branch": "main",
+        "header_paths": [
+          { "source": "include", "destination": "$HOME/usr/include/rdkb" }
+        ],
+        "build": {
+          "type": "autotools"
+        }
+      },
+      {
+        "name": "gmock-broadband",
+        "repo": "https://github.com/rdkcentral/gmock-broadband.git",
+        "branch": "develop",
+        "header_paths": [
+          { "source": "docker_scripts/common_headers", "destination": "$HOME/usr/include/rdkb" }
+        ]
+      },
+      {
+        "name": "libSyscallWrapper",
+        "repo": "https://github.com/rdkcentral/libSyscallWrapper.git",
+        "branch": "develop",
+        "header_paths": [
+          { "source": "source", "destination": "$HOME/usr/include/rdkb" }
+        ],
+        "build": {
+          "type": "autotools",
+          "configure_flags": "CPPFLAGS=\"-I$HOME/usr/include/rdkb\" LDFLAGS=\"-L$HOME/usr/local/lib\""
+        }
+      },
+      {
+        "name": "common-library",
+        "repo": "https://github.com/rdkcentral/common-library.git",
+        "branch": "feature/native_build_for_coverity",
+        "header_paths": [
+          { "source": "source/ccsp/include", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/ccsp/components/include", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/ccsp/custom", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/cosa/include", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/cosa/include/linux", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/cosa/include/linux", "destination": "$HOME/usr/include/rdkb/linux" },
+          { "source": "source/cosa/package/slap/include", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/debug_api/include", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/util_api/http/include", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/util_api/ansc/include", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/ccsp/components/common/MessageBusHelper/include", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/dm_pack", "destination": "$HOME/usr/include/rdkb" }
+        ],
+        "source_patches": [
+          {
+            "file": "source/ccsp/include/ccsp_message_bus.h",
+            "search": "typedef struct _CCSP_MESSAGE_BUS_CONNECTION",
+            "replace": "typedef struct DBusLoop DBusLoop;\n\ntypedef struct _CCSP_MESSAGE_BUS_CONNECTION"
+          },
+          {
+            "file": "$HOME/usr/include/rdkb/ccsp_message_bus.h",
+            "search": "typedef struct _CCSP_MESSAGE_BUS_CONNECTION",
+            "replace": "typedef struct DBusLoop DBusLoop;\n\ntypedef struct _CCSP_MESSAGE_BUS_CONNECTION"
+          }
+        ],        
+        "build": {
+          "type": "script",
+          "script": "cov_docker_script/common_external_build.sh"
+        }
+      },
+      {
+        "name": "breakpad_wrapper",
+        "repo": "https://github.com/rdkcentral/breakpad_wrapper.git",
+        "branch": "main",
+        "header_paths": [
+          { "source": ".", "destination": "$HOME/usr/include/rdkb" }
+        ]
+      }
+    ]
+  },
+  
+  "native_component": {
+    "_comment": "Configuration for the main component being built",
+    "name": "javascript-template",
+    "include_path": "$HOME/usr/include/rdkb/",
+    "lib_output_path": "$HOME/usr/local/lib/",
+    "pre_build_commands": [
+    ],
+    "build": {
+      "type": "cmake",
+      "configure_options_file": "cov_docker_script/configure_options.conf"
+    }
+  }
+}
