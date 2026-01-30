@@ -3,7 +3,7 @@
   "_version": "2.0",
   "_description": "Defines dependencies and build settings for the native component",
   
-"dependencies": {
+  "dependencies": {
     "_comment": "External repositories needed by this component",
     "repos": [
       {
@@ -88,13 +88,12 @@
   
   "native_component": {
     "_comment": "Configuration for the main component being built",
-    "name": "javascript-template",
-    "include_path": "$HOME/usr/include/rdkb:usr/include:$HOME/usr/include/rdkb/rbus:/usr/include/dbus-1.0:/usr/lib/x86_64-linux-gnu/dbus-1.0/include:$HOME/usr/include/rdkb/dbus:/usr/include/ccsp",
+    "name": "javascript-templates",
+    "include_path": "$HOME/usr/include/rdkb:/usr/include/dbus-1.0:/usr/lib/x86_64-linux-gnu/dbus-1.0/include",
     "lib_output_path": "$HOME/usr/local/lib",
     "build": {
       "type": "cmake",
-      "cmake_flags": "-DBUILD_RDK=ON -DCMAKE_C_FLAGS=\"-I$HOME/usr/include/rdkb -I$HOME/usr/include/rdkb/dbus -I/usr/include/dbus-1.0 -I/usr/lib/x86_64-linux-gnu/dbus-1.0/include -I/usr/include/ccsp -I$HOME/usr/include/rdkb/dbus -DBUILD_RBUS\" -DCMAKE_EXE_LINKER_FLAGS='-Wl,--allow-shlib-undefined -Wl,--unresolved-symbols=ignore-all' -DCMAKE_C_STANDARD_LIBRARIES=\"-L$HOME/usr/local/lib\"",
-      "configure_options_file": "cov_docker_script/configure_options.conf"
+      "cmake_flags": "-DBUILD_RDK=ON -DCMAKE_C_FLAGS=\"-I$HOME/usr/include/rdkb -I/usr/include/dbus-1.0 -I/usr/lib/x86_64-linux-gnu/dbus-1.0/include -DBUILD_RBUS\" -DCMAKE_EXE_LINKER_FLAGS='-Wl,--allow-shlib-undefined -Wl,--unresolved-symbols=ignore-all' -DCMAKE_C_STANDARD_LIBRARIES=\"-L$HOME/usr/local/lib\""
     }
   }
 }
