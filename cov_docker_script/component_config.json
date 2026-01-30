@@ -6,18 +6,94 @@
 "dependencies": {
     "_comment": "External repositories needed by this component",
     "repos": [
+      {
+        "name": "rbus",
+        "repo": "https://github.com/rdkcentral/rbus.git",
+        "branch": "v2.7.0",
+        "header_paths": [
+          { "source": "include", "destination": "$HOME/usr/include/rdkb/rbus" },
+          { "source": "src/rbus", "destination": "$HOME/usr/include/rdkb/rbus" },
+          { "source": "src/core", "destination": "$HOME/usr/include/rdkb/rbus" },
+          { "source": "src/rtmessage", "destination": "$HOME/usr/include/rdkb/rtmessage" }
+        ],
+        "build": {
+          "type": "cmake",
+          "build_dir": "build",
+          "cmake_flags": "-DCMAKE_INSTALL_PREFIX=$HOME/usr -DCMAKE_PREFIX_PATH=/usr -DBUILD_FOR_DESKTOP=ON -DCMAKE_BUILD_TYPE=Debug"
+        }
+      },
+      {
+        "name": "trower-base64",
+        "repo": "https://github.com/xmidt-org/trower-base64.git",
+        "branch": "v1.2.7",
+        "header_paths": [
+          { "source": "include", "destination": "$HOME/usr/include/rdkb" }
+        ],
+        "build": {
+          "type": "commands",
+          "commands": [
+            "meson setup build --prefix=$HOME/usr",
+            "meson compile -C build"
+          ]
+        }
+      },
+      {
+        "name": "common-library",
+        "repo": "https://github.com/rdkcentral/common-library.git",
+        "branch": "feature/native_build_for_coverity",
+        "header_paths": [
+          { "source": "source/ccsp/include", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/ccsp/components/include", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/ccsp/custom", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/cosa/include", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/cosa/include/linux", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/cosa/include/linux", "destination": "$HOME/usr/include/rdkb/linux" },
+          { "source": "source/cosa/package/slap/include", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/debug_api/include", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/util_api/http/include", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/util_api/ansc/include", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/ccsp/components/common/MessageBusHelper/include", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/dm_pack", "destination": "$HOME/usr/include/rdkb" },
+          { "source": "source/ccsp/components/common/PoamIrepFolder", "destination": "$HOME/usr/include/rdkb" }
+        ],
+        "source_patches": [
+          {
+            "file": "source/ccsp/include/ccsp_message_bus.h",
+            "search": "typedef struct _CCSP_MESSAGE_BUS_CONNECTION",
+            "replace": "typedef struct DBusLoop DBusLoop;\n\ntypedef struct _CCSP_MESSAGE_BUS_CONNECTION"
+          },
+          {
+            "file": "$HOME/usr/include/rdkb/ccsp_message_bus.h",
+            "search": "typedef struct _CCSP_MESSAGE_BUS_CONNECTION",
+            "replace": "typedef struct DBusLoop DBusLoop;\n\ntypedef struct _CCSP_MESSAGE_BUS_CONNECTION"
+          }
+        ],        
+        "build": {
+          "type": "script",
+          "script": "cov_docker_script/common_external_build.sh"
+        }
+      },
+      {
+        "name": "dbus",
+        "repo": "https://github.com/deepin-community/dbus.git",
+        "branch" : "master",
+        "build": {
+          "type": "cmake",
+          "build_dir": "build",
+          "cmake_flags": "-DCMAKE_INSTALL_PREFIX=$HOME/usr -DCMAKE_PREFIX_PATH=/usr -DBUILD_FOR_DESKTOP=ON -DCMAKE_BUILD_TYPE=Debug"
+        }
+      }
     ]
   },
   
   "native_component": {
     "_comment": "Configuration for the main component being built",
     "name": "javascript-template",
-    "include_path": "$HOME/usr/include/rdkb/",
-    "lib_output_path": "$HOME/usr/local/lib/",
-    "pre_build_commands": [
-    ],
+    "include_path": "$HOME/usr/include/rdkb:usr/include:$HOME/usr/include/rdkb/rbus:/usr/include/dbus-1.0:/usr/lib/x86_64-linux-gnu/dbus-1.0/include:$HOME/usr/include/rdkb/dbus:/usr/include/ccsp",
+    "lib_output_path": "$HOME/usr/local/lib",
     "build": {
       "type": "cmake",
+      "cmake_flags": "-DBUILD_RDK=ON -DCMAKE_C_FLAGS=\"-I$HOME/usr/include/rdkb -I$HOME/usr/include/rdkb/dbus -I/usr/include/dbus-1.0 -I/usr/lib/x86_64-linux-gnu/dbus-1.0/include -I/usr/include/ccsp -I$HOME/usr/include/rdkb/dbus -DBUILD_RBUS\" -DCMAKE_EXE_LINKER_FLAGS='-Wl,--allow-shlib-undefined -Wl,--unresolved-symbols=ignore-all' -DCMAKE_C_STANDARD_LIBRARIES=\"-L$HOME/usr/local/lib\"",
       "configure_options_file": "cov_docker_script/configure_options.conf"
     }
   }
