@@ -89,11 +89,11 @@
   "native_component": {
     "_comment": "Configuration for the main component being built",
     "name": "javascript-templates",
-    "include_path": "$HOME/usr/include/rdkb:/usr/include/dbus-1.0:/usr/lib/x86_64-linux-gnu/dbus-1.0/include",
+    "include_path": "$HOME/usr/include/rdkb",
     "lib_output_path": "$HOME/usr/local/lib",
     "build": {
       "type": "cmake",
-      "cmake_flags": "-DBUILD_RDK=ON -DCMAKE_C_FLAGS=\"-I$HOME/usr/include/rdkb -I/usr/include/dbus-1.0 -I/usr/lib/x86_64-linux-gnu/dbus-1.0/include -DBUILD_RBUS\" -DCMAKE_EXE_LINKER_FLAGS='-Wl,--allow-shlib-undefined -Wl,--unresolved-symbols=ignore-all' -DCMAKE_C_STANDARD_LIBRARIES=\"-L$HOME/usr/local/lib\""
+      "configure_options_file": "cov_docker_script/configure_options.conf"
     }
   }
 }
