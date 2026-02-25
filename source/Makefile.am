@@ -20,8 +20,9 @@ AM_CFLAGS = -D_ANSC_LINUX
 AM_CFLAGS += -D_ANSC_USER
 AM_CFLAGS += -D_ANSC_LITTLE_ENDIAN_
 AM_CFLAGS += -Os -pedantic -std=c99 -Wall -fstrict-aliasing -fomit-frame-pointer -DDUK_USE_PROMISE_BUILTIN
+AM_CFLAGS += -Werror -Wno-error=format
 AM_LDFLAGS = -lccsp_common
-AM_CPPFLAGS = -Wall -Werror
+AM_CPPFLAGS = -Wno-error=format
 ACLOCAL_AMFLAGS = -I m4
 sbin_PROGRAMS = jst
 jst_CPPFLAGS = -DBUILD_RDK
