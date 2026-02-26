@@ -75,6 +75,12 @@ static duk_ret_t session_start(duk_context *ctx)
 {
   CosaPhpExtLog("%s: entered\n", __PRETTY_FUNCTION__);
   const char* cookie;
+  /* ----------- MEMORY LEAK FOR COVERITY TEST ----------- */
+     char *test = malloc(100);  // allocate 100 bytes
+     test[0] = 'a';
+    /* intentionally do nothing with leak or free it */
+  /* --------------------------------------------------------------- */
+
   /* if session already created then do nothing */
   if(session_identifier)
   {
