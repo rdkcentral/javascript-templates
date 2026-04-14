@@ -113,6 +113,29 @@ char* jst_debug_file_name = NULL;
 static int main_argc = 0;
 static char **main_argv = NULL;
 static int interactive_mode = 0;
+
+/*
+ * ===== Runaway JavaScript protection =====
+ *
+ * Duktape v2.3.0 interrupt-based execution limit.
+ * Stops infinite loops and long-running scripts safely.
+ */
+typedef struct {
+    duk_int_t remaining;
+} js_exec_budget_t;
+
+static js_exec_budget_t js_exec_budget;
+
+static duk_bool_t js_interrupt_cb(void *udata) {
+    js_exec_budget_t *budget = (js_exec_budget_t *) udata;
+
+    if (--budget->remaining <= 0) {
+        /* Non-zero return value aborts execution */
+        return 1;
+    }
+    return 0;
+}
+
 #if defined(DUK_CMDLINE_DEBUGGER_SUPPORT)
 static int debugger_reattach = 0;
 #endif
@@ -560,6 +583,9 @@ static int handle_fh(duk_context *ctx, FILE *f, const char *filename, const char
 	int rc;
 	int retval = -1;
 
+  /* Reset execution budget before running code */
+  js_exec_budget.remaining = 100000;
+
   if(strlen(filename) > 4 && !strcmp(filename + strlen(filename) - 4, ".jst"))
   {
     //fclose(f);
@@ -733,6 +759,9 @@ static int handle_eval(duk_context *ctx, char *code) {
 	int rc;
 	int retval = -1;
 
+	/* Reset execution budget before eval */
+	js_exec_budget.remaining = 100000;
+
 	duk_push_pointer(ctx, (void *) code);
 	duk_push_uint(ctx, (duk_uint_t) strlen(code));
 	duk_push_string(ctx, "eval");
@@ -761,6 +790,9 @@ static int handle_interactive(duk_context *ctx) {
 	char *buffer = NULL;
 	int retval = 0;
 	int rc;
+
+	/* Reset execution budget before interactive execution */
+	js_exec_budget.remaining = 100000;
 
 	linenoiseSetMultiLine(1);
 	linenoiseHistorySetMaxLen(64);
@@ -1147,6 +1179,17 @@ static duk_context *create_duktape_heap(int alloc_provider, int debugger, int lo
 	if (!ctx && alloc_provider == ALLOC_DEFAULT) {
 		ctx = duk_create_heap(NULL, NULL, NULL, NULL, cmdline_fatal_handler);
 	}
+
+	/*
+	* Install execution interrupt handler to stop runaway scripts.
+	* Budget is reset before each JS execution.
+	*/
+	#if defined(DUK_USE_INTERRUPT_COUNTER)
+		js_exec_budget.remaining = 100000;
+		duk_set_interrupt(ctx, js_interrupt_cb, &js_exec_budget);
+		fprintf(stderr, "Duktape execution interrupt enabled (budget=%ld)\n",
+			(long) js_exec_budget.remaining);
+	#endif
 
 	if (!ctx) {
 		fprintf(stderr, "Failed to create Duktape heap\n");
