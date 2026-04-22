@@ -408,17 +408,39 @@ static duk_ret_t getInstanceIds(duk_context *ctx)
                 &pInstNumList
             );
 
-    if (iReturn != CCSP_SUCCESS)
+    if (iReturn != CCSP_SUCCESS || InstNum == 0 || pInstNumList == NULL)
     {
         //AnscTraceWarning("Failed on CcspBaseIf_GetNextLevelInstances, error code = %d.\n", iReturn);
         //RETURN_STRING("ERROR: Failed on CcspBaseIf_GetNextLevelInstances",1);
         RETURN_STRING("");
     }
 
-    for(loop1=0,loop2=0; loop1<(InstNum); loop1++) 
+    /* Build comma-separated instance list safely */
+    for (loop1 = 0, loop2 = 0; loop1 < InstNum; loop1++)
     {
-        len =sprintf(&format_s[loop2],"%d,", pInstNumList[loop1]);
-        loop2=loop2+len;
+        if (loop2 >= (int)(sizeof(format_s) - 1))
+        {
+            break;
+        }
+
+        len = snprintf(
+                &format_s[loop2],
+                sizeof(format_s) - loop2,
+                "%u,",
+                pInstNumList[loop1]);
+
+        if (len <= 0)
+        {
+            break;
+        }
+
+        if (len >= (int)(sizeof(format_s) - loop2))
+        {
+            loop2 = sizeof(format_s) - 1;
+            break;
+        }
+
+        loop2 += len;
     }
 
     if (pInstNumList)
@@ -426,16 +448,16 @@ static duk_ret_t getInstanceIds(duk_context *ctx)
         free(pInstNumList);
     }
 
-    //Place NULL char at the end of string
-    if (loop2 >= 1)
+    /* Remove trailing comma safely */
+    if (loop2 > 0 && format_s[loop2 - 1] == ',')
     {
-        format_s[loop2-1]=0;
+        format_s[loop2 - 1] = '\0';
     }
     else
     {
-        format_s[0]=0;
-        CosaPhpExtLog("loop2-1 is less than zero in format_s[]\n");
+        format_s[loop2] = '\0';
     }
+
     RETURN_STRING(format_s);
 }
 
