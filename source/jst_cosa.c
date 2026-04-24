@@ -418,6 +418,8 @@ static duk_ret_t getInstanceIds(duk_context *ctx)
     /* Build comma-separated instance list safely */
     for (loop1 = 0, loop2 = 0; loop1 < InstNum; loop1++)
     {
+        unsigned int prev_loop2 = loop2;
+
         if (loop2 >= (int)(sizeof(format_s) - 1))
         {
             break;
@@ -436,7 +438,9 @@ static duk_ret_t getInstanceIds(duk_context *ctx)
 
         if (len >= (int)(sizeof(format_s) - loop2))
         {
-            loop2 = sizeof(format_s) - 1;
+            /* Truncation: discard the partial write so only complete ids remain */
+            format_s[prev_loop2] = '\0';
+            loop2 = prev_loop2;
             break;
         }
 
