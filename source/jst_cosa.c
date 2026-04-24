@@ -412,6 +412,8 @@ static duk_ret_t getInstanceIds(duk_context *ctx)
     {
         //AnscTraceWarning("Failed on CcspBaseIf_GetNextLevelInstances, error code = %d.\n", iReturn);
         //RETURN_STRING("ERROR: Failed on CcspBaseIf_GetNextLevelInstances",1);
+        if (ppDestComponentName) { free(ppDestComponentName); ppDestComponentName = NULL; }
+        if (ppDestPath)          { free(ppDestPath);          ppDestPath = NULL; }
         RETURN_STRING("");
     }
 
@@ -451,6 +453,9 @@ static duk_ret_t getInstanceIds(duk_context *ctx)
     {
         free(pInstNumList);
     }
+
+    if (ppDestComponentName) { free(ppDestComponentName); ppDestComponentName = NULL; }
+    if (ppDestPath)          { free(ppDestPath);          ppDestPath = NULL; }
 
     /* Remove trailing comma safely */
     if (loop2 > 0 && format_s[loop2 - 1] == ',')
