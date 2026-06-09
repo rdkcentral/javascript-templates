@@ -578,14 +578,14 @@ static duk_ret_t do_openssl_verify_with_cert(duk_context *ctx)
     if(EVP_VerifyUpdate (md_ctx, token, strlen(token)))
     {
       err = EVP_VerifyFinal(md_ctx, (unsigned char *)sig2verify, (unsigned int)strlen(sig2verify), key);
-      if(err < 0)
+      if(err == 1)
       {
-        CosaPhpExtLog("openssl_verify_with_cert: EVP_VerifyFinal failed error:%d\n", err);
+       ok = 1;
+       CosaPhpExtLog("openssl_verify_with_cert: EVP_VerifyFinal success\n");
       }
       else
       {
-        ok = 1;
-        CosaPhpExtLog("openssl_verify_with_cert: EVP_VerifyFinal success\n");
+       CosaPhpExtLog("openssl_verify_with_cert: EVP_VerifyFinal failed error:%d\n", err);
       }
     }
     else
