@@ -500,7 +500,8 @@ static duk_ret_t do_openssl_verify_with_cert(duk_context *ctx)
   char* token;
   char* sig2verify;
   char* alg;
-
+  duk_size_t sig2verify_len =0;
+ 
   BIO* bio = NULL;
   X509* cert = NULL;
   EVP_PKEY * key = NULL;
@@ -517,6 +518,11 @@ static duk_ret_t do_openssl_verify_with_cert(duk_context *ctx)
     RETURN_FALSE;
   }
 
+   /* Use duk_get_lstring to get the true binary length of the signature.
+   * strlen() would truncate at the first null byte, which is almost always
+   * present in a raw RSA signature, causing EVP_VerifyFinal to fail. */
+  sig2verify = duk_get_lstring(ctx, 2, &sig2verify_len);  
+ 
   //open certificate file
   if(memcmp(filepath, "file://", sizeof("file://")-1) != 0)
   {
@@ -573,19 +579,20 @@ static duk_ret_t do_openssl_verify_with_cert(duk_context *ctx)
     RETURN_FALSE;
   }
 
+
   if(EVP_VerifyInit (md_ctx, mdtype))
   {
     if(EVP_VerifyUpdate (md_ctx, token, strlen(token)))
     {
-      err = EVP_VerifyFinal(md_ctx, (unsigned char *)sig2verify, (unsigned int)strlen(sig2verify), key);
-      if(err < 0)
+      err = EVP_VerifyFinal(md_ctx, (unsigned char *)sig2verify, (unsigned int)sig2verify_len, key);
+      if(err == 1)
       {
-        CosaPhpExtLog("openssl_verify_with_cert: EVP_VerifyFinal failed error:%d\n", err);
+       ok = 1;
+       CosaPhpExtLog("openssl_verify_with_cert: EVP_VerifyFinal success\n");
       }
       else
       {
-        ok = 1;
-        CosaPhpExtLog("openssl_verify_with_cert: EVP_VerifyFinal success\n");
+       CosaPhpExtLog("openssl_verify_with_cert: EVP_VerifyFinal failed error:%d\n", err);
       }
     }
     else
