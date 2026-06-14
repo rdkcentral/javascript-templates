@@ -494,13 +494,81 @@ static duk_ret_t do_include(duk_context *ctx)
   }
 }
 
+/* Helper function: Decode base64url string to binary signature */
+static unsigned char* base64url_decode_signature(const char* sig_base64url, size_t input_len, size_t* output_len)
+{
+  char* b64_input = NULL;
+  unsigned char* sig_bytes = NULL;
+  BIO *bio, *b64;
+  size_t max_len;
+
+  if (!sig_base64url || input_len == 0) {
+    CosaPhpExtLog("base64url_decode_signature: invalid input\n");
+    return NULL;
+  }
+
+  /* Allocate space for conversion (+4 for potential padding) */
+  b64_input = malloc(input_len + 4);
+  if (!b64_input) {
+    CosaPhpExtLog("base64url_decode_signature: malloc failed for b64_input\n");
+    return NULL;
+  }
+
+  /* Copy and convert URL-safe chars to standard base64 */
+  memcpy(b64_input, sig_base64url, input_len);
+  b64_input[input_len] = '\0';
+
+  for (size_t i = 0; i < input_len; i++) {
+    if (b64_input[i] == '-') b64_input[i] = '+';
+    else if (b64_input[i] == '_') b64_input[i] = '/';
+  }
+
+  /* Add padding if needed */
+  size_t mod = input_len % 4;
+  if (mod == 2) {
+    strcat(b64_input, "==");
+  } else if (mod == 3) {
+    strcat(b64_input, "=");
+  }
+
+  /* Allocate buffer for decoded data */
+  max_len = (input_len * 3) / 4 + 1;
+  sig_bytes = malloc(max_len);
+  if (!sig_bytes) {
+    free(b64_input);
+    CosaPhpExtLog("base64url_decode_signature: malloc failed for sig_bytes\n");
+    return NULL;
+  }
+
+  /* Decode using OpenSSL BIO */
+  bio = BIO_new_mem_buf(b64_input, -1);
+  b64 = BIO_new(BIO_f_base64());
+  bio = BIO_push(b64, bio);
+  BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL);
+
+  *output_len = BIO_read(bio, sig_bytes, max_len);
+  BIO_free_all(bio);
+  free(b64_input);
+
+  if (*output_len <= 0) {
+    free(sig_bytes);
+    CosaPhpExtLog("base64url_decode_signature: BIO_read failed\n");
+    return NULL;
+  }
+
+  CosaPhpExtLog("base64url_decode_signature: decoded %zu bytes from %zu byte input\n", *output_len, input_len);
+  return sig_bytes;
+}
+
 static duk_ret_t do_openssl_verify_with_cert(duk_context *ctx)
 {
   char* filepath;
   char* token;
-  char* sig2verify;
+  char* sig_base64url;  /* Base64url-encoded signature string */
   char* alg;
-
+  size_t sig_base64url_len = 0;
+  unsigned char* sig_bytes = NULL;  /* Decoded binary signature */
+  size_t sig_len = 0;
   BIO* bio = NULL;
   X509* cert = NULL;
   EVP_PKEY * key = NULL;
@@ -511,16 +579,46 @@ static duk_ret_t do_openssl_verify_with_cert(duk_context *ctx)
 
   /* note that SHA256 is currently the only supported digest by this function
    * add more as necessary using EVP_add_digest() or OpenSSL_add_all_digests() */
-  if (!parse_parameter(__FUNCTION__, ctx, "ssss", &filepath, &token, &sig2verify, &alg))
-  {
-    CosaPhpExtLog("openssl_verify_with_cert: failed to parse parameters\n");
+
+   /* Get all parameters directly from Duktape stack */
+  if (duk_get_top(ctx) < 4) {
+    CosaPhpExtLog("openssl_verify_with_cert: insufficient parameters (need 4, got %d)\n", duk_get_top(ctx));
     RETURN_FALSE;
   }
+
+  filepath = duk_get_string(ctx, 0);
+  token = duk_get_string(ctx, 1);
+  sig_base64url = duk_get_lstring(ctx, 2, &sig_base64url_len);  /* Get base64url string */
+  alg = duk_get_string(ctx, 3);
+
+  if (!filepath || !token || !sig_base64url || !alg) {
+    CosaPhpExtLog("openssl_verify_with_cert: NULL parameter detected\n");
+    RETURN_FALSE;
+  }
+
+  if (sig_base64url_len == 0) {
+    CosaPhpExtLog("openssl_verify_with_cert: signature length is 0 - invalid signature data\n");
+    RETURN_FALSE;
+  }
+
+  CosaPhpExtLog("openssl_verify_with_cert: Received base64url signature length=%zu, alg=%s\n", sig_base64url_len, alg);
+
+  /* === DECODE BASE64URL SIGNATURE === */
+  sig_bytes = base64url_decode_signature(sig_base64url, sig_base64url_len, &sig_len);
+  if (!sig_bytes) {
+    CosaPhpExtLog("openssl_verify_with_cert: Failed to decode base64url signature\n");
+    RETURN_FALSE;
+  }
+
+  CosaPhpExtLog("openssl_verify_with_cert: Decoded signature to %zu bytes (expected ~256 for RS256)\n", sig_len);
+
+  /* === NOW PROCEED WITH SIGNATURE VERIFICATION === */
 
   //open certificate file
   if(memcmp(filepath, "file://", sizeof("file://")-1) != 0)
   {
     CosaPhpExtLog("openssl_verify_with_cert: file %s doesn't begin with 'file://'\n", filepath);
+    free(sig_bytes);
     RETURN_FALSE;
   }
   filepath += sizeof("file://") - 1;
@@ -528,6 +626,7 @@ static duk_ret_t do_openssl_verify_with_cert(duk_context *ctx)
   if(!bio)
   {
     CosaPhpExtLog("openssl_verify_with_cert: failed open file %s\n", filepath);
+    free(sig_bytes);
     RETURN_FALSE;
   }
 
@@ -548,20 +647,22 @@ static duk_ret_t do_openssl_verify_with_cert(duk_context *ctx)
   }
 
   BIO_free(bio);
-
+  bio = NULL;
   if(!key)
   {
     CosaPhpExtLog("openssl_verify_with_cert: failed read public key from %s\n", filepath);
+    free(sig_bytes);
     RETURN_FALSE;
   }
 
   EVP_add_digest(EVP_sha256());
 
-  mdtype = EVP_get_digestbyname(alg);
+  mdtype = EVP_sha256();
   if(!mdtype)
   {
     CosaPhpExtLog("openssl_verify_with_cert: EVP_get_digestbyname failed for %s\n", alg);
     EVP_PKEY_free(key);
+    free(sig_bytes);
     RETURN_FALSE;
   }
 
@@ -570,6 +671,7 @@ static duk_ret_t do_openssl_verify_with_cert(duk_context *ctx)
   {
     CosaPhpExtLog("openssl_verify_with_cert: EVP_MD_CTX_create failed\n");
     EVP_PKEY_free(key);
+    free(sig_bytes);
     RETURN_FALSE;
   }
 
@@ -577,15 +679,15 @@ static duk_ret_t do_openssl_verify_with_cert(duk_context *ctx)
   {
     if(EVP_VerifyUpdate (md_ctx, token, strlen(token)))
     {
-      err = EVP_VerifyFinal(md_ctx, (unsigned char *)sig2verify, (unsigned int)strlen(sig2verify), key);
-      if(err < 0)
-      {
-        CosaPhpExtLog("openssl_verify_with_cert: EVP_VerifyFinal failed error:%d\n", err);
-      }
-      else
+      err = EVP_VerifyFinal(md_ctx, sig_bytes, (unsigned int)sig_len, key);
+      if(err == 1)
       {
         ok = 1;
         CosaPhpExtLog("openssl_verify_with_cert: EVP_VerifyFinal success\n");
+      }
+      else
+      {
+        CosaPhpExtLog("openssl_verify_with_cert: EVP_VerifyFinal failed error:%d\n", err);
       }
     }
     else
@@ -599,6 +701,7 @@ static duk_ret_t do_openssl_verify_with_cert(duk_context *ctx)
   }
   EVP_MD_CTX_destroy(md_ctx);
   EVP_PKEY_free(key);
+  free(sig_bytes);  /* Clean up decoded signature */
   if(ok)
   {
     RETURN_TRUE;
