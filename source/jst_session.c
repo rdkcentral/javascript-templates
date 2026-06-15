@@ -128,14 +128,25 @@ static duk_ret_t session_start(duk_context *ctx)
            }
            if(isvalid)
            {
-             sesid = strtok(sesid, ";");
+             char sesid_token[SESSION_ID_LENGTH+1];
+             size_t sesid_token_len = strcspn(sesid, ";");
+
+             if (sesid_token_len < SESSION_ID_LENGTH)
+             {
+               CosaPhpExtLog("Invalid SessionID Entropy\n");
+               RETURN_FALSE;
+             }
+
+             memcpy(sesid_token, sesid, SESSION_ID_LENGTH);
+             sesid_token[SESSION_ID_LENGTH] = '\0';
+
              const char filename[SESSION_FILE_MAX_PATH];
-             snprintf(filename, SESSION_FILE_MAX_PATH, "%s/%s", SESSION_TMP_DIR, sesid);
+             snprintf(filename, SESSION_FILE_MAX_PATH, "%s/%s", SESSION_TMP_DIR, sesid_token);
              CosaPhpExtLog("%s: Checking for Session file %s\n", __PRETTY_FUNCTION__, filename);
              if (access(filename, F_OK) == 0)
              {
                CosaPhpExtLog("%s: Session file %s exists\n", __PRETTY_FUNCTION__, filename);
-               strncpy(session_identifier, sesid, SESSION_ID_LENGTH);
+               strncpy(session_identifier, sesid_token, SESSION_ID_LENGTH);
              } else {
                CosaPhpExtLog("%s: Failed to read Session file %s\n", __PRETTY_FUNCTION__, filename);
              }
