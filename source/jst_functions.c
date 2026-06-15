@@ -615,7 +615,7 @@ static duk_ret_t do_openssl_verify_with_cert(duk_context *ctx)
   /* === NOW PROCEED WITH SIGNATURE VERIFICATION === */
 
   //open certificate file
-  if(memcmp(filepath, "file://", sizeof("file://")-1) != 0)
+  if(strlen(filepath) < (sizeof("file://") - 1) || memcmp(filepath, "file://", sizeof("file://")-1) != 0)
   {
     CosaPhpExtLog("openssl_verify_with_cert: file %s doesn't begin with 'file://'\n", filepath);
     free(sig_bytes);
