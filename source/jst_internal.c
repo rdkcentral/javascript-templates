@@ -179,8 +179,22 @@ int read_file(const char *filename, char** bufout, size_t* lenout)
     return 0;
   }
 
-  fseek(pf, 0, SEEK_END); 
-  size = ftell(pf);
+  if(fseek(pf, 0, SEEK_END) != 0)
+  {
+    fclose(pf);
+    fprintf(stderr, "Error: fseek failed %s\n", filename);
+    return 0;
+  }
+  {
+    long ftell_result = ftell(pf);
+    if(ftell_result < 0)
+    {
+      fclose(pf);
+      fprintf(stderr, "Error: ftell failed %s (not a regular file?)\n", filename);
+      return 0;
+    }
+    size = (size_t)ftell_result;
+  }
   rewind(pf);
 
   buf = (char*)calloc(size+1, 1);
