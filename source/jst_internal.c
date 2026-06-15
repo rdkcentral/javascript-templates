@@ -193,9 +193,24 @@ int read_file(const char *filename, char** bufout, size_t* lenout)
       fprintf(stderr, "Error: ftell failed %s (not a regular file?)\n", filename);
       return 0;
     }
+
+    if((unsigned long)ftell_result > (unsigned long)((size_t)-1))
+    {
+      fclose(pf);
+      fprintf(stderr, "Error: file too large to represent safely %s\n", filename);
+      return 0;
+    }
+
     size = (size_t)ftell_result;
   }
   rewind(pf);
+
+  if(size > ((size_t)-1) - 1)
+  {
+    fclose(pf);
+    fprintf(stderr, "Error: file size overflow %s\n", filename);
+    return 0;
+  }
 
   buf = (char*)calloc(size+1, 1);
   if(!buf)
