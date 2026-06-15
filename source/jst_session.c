@@ -112,45 +112,49 @@ static duk_ret_t session_start(duk_context *ctx)
     if(sesid)
     {
       sesid += 7;
-      int len = strlen(sesid);
-      if(len >= SESSION_ID_LENGTH)
+      size_t sesid_token_len = strcspn(sesid, ";");
+      if(sesid_token_len == SESSION_ID_LENGTH)
       {
-           int idx = SESSION_PREFIX_LEN;
-           int isvalid = 1;
-           /* Validate session ID*/
-           while ( idx < SESSION_ID_LENGTH) {
-              if (!isalnum(sesid[idx])) {
-                      CosaPhpExtLog("Invalid SessionID\n");
-                      isvalid = 0;
-                      break;
-              }
-              idx++;
-           }
-           if(isvalid)
-           {
-             char sesid_token[SESSION_ID_LENGTH+1];
-             size_t sesid_token_len = strcspn(sesid, ";");
+        int idx = SESSION_PREFIX_LEN;
+        int isvalid = 1;
+        char sesid_token[SESSION_ID_LENGTH+1];
 
-             if (sesid_token_len < SESSION_ID_LENGTH)
-             {
-               CosaPhpExtLog("Invalid SessionID Entropy\n");
-               RETURN_FALSE;
-             }
+        memcpy(sesid_token, sesid, SESSION_ID_LENGTH);
+        sesid_token[SESSION_ID_LENGTH] = '\0';
 
-             memcpy(sesid_token, sesid, SESSION_ID_LENGTH);
-             sesid_token[SESSION_ID_LENGTH] = '\0';
+        if(strncmp(sesid_token, SESSION_PREFIX, SESSION_PREFIX_LEN) != 0)
+        {
+          CosaPhpExtLog("Invalid SessionID prefix\n");
+          isvalid = 0;
+        }
 
-             const char filename[SESSION_FILE_MAX_PATH];
-             snprintf(filename, SESSION_FILE_MAX_PATH, "%s/%s", SESSION_TMP_DIR, sesid_token);
-             CosaPhpExtLog("%s: Checking for Session file %s\n", __PRETTY_FUNCTION__, filename);
-             if (access(filename, F_OK) == 0)
-             {
-               CosaPhpExtLog("%s: Session file %s exists\n", __PRETTY_FUNCTION__, filename);
-               strncpy(session_identifier, sesid_token, SESSION_ID_LENGTH);
-             } else {
-               CosaPhpExtLog("%s: Failed to read Session file %s\n", __PRETTY_FUNCTION__, filename);
-             }
-           }
+        /* Validate random portion of session ID */
+        while (idx < SESSION_ID_LENGTH && isvalid)
+        {
+          if(!isalnum((unsigned char)sesid_token[idx]))
+          {
+            CosaPhpExtLog("Invalid SessionID\n");
+            isvalid = 0;
+            break;
+          }
+          idx++;
+        }
+
+        if(isvalid)
+        {
+          char filename[SESSION_FILE_MAX_PATH];
+          snprintf(filename, SESSION_FILE_MAX_PATH, "%s/%s", SESSION_TMP_DIR, sesid_token);
+          CosaPhpExtLog("%s: Checking for Session file %s\n", __PRETTY_FUNCTION__, filename);
+          if (access(filename, F_OK) == 0)
+          {
+            CosaPhpExtLog("%s: Session file %s exists\n", __PRETTY_FUNCTION__, filename);
+            strncpy(session_identifier, sesid_token, SESSION_ID_LENGTH);
+          }
+          else
+          {
+            CosaPhpExtLog("%s: Failed to read Session file %s\n", __PRETTY_FUNCTION__, filename);
+          }
+        }
       } else {
            CosaPhpExtLog("Invalid SessionID Entropy\n");
       }
