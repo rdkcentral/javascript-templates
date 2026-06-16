@@ -170,9 +170,15 @@ static duk_ret_t do_exec(duk_context *ctx)
   CosaPhpExtLog("exec command=%s\n", command);
 
   wr = wordexp(command, &args, WRDE_NOCMD);
-  if (wr != 0 || args.we_wordc == 0)
+  if (wr != 0)
   {
     CosaPhpExtLog("exec failed to parse command, wordexp status=%d\n", wr);
+    return 1;
+  }
+  if (args.we_wordc == 0)
+  {
+    CosaPhpExtLog("exec empty command after expansion\n");
+    wordfree(&args);
     return 1;
   }
 
