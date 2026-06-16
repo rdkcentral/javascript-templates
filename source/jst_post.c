@@ -962,7 +962,9 @@ duk_ret_t ccsp_post_module_open(duk_context *ctx)
         {
           process_multipart_form_data(content_data, content_len, boundary, boundary_len);
           free(boundary);
-          free(content_data);
+	  if (post_data == NULL || post_data != content_data) {
+		free(content_data);
+	  }
         }
         else
         {
