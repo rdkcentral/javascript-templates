@@ -217,7 +217,12 @@ static duk_ret_t do_exec(duk_context *ctx)
   {
     CosaPhpExtLog("exec failed to open read pipe, error:%s\n", strerror(errno));
     close(pipes[0]);
-    waitpid(pid, &status, 0);
+    {
+      pid_t wp;
+      do { wp = waitpid(pid, &status, 0); } while (wp == -1 && errno == EINTR);
+      if (wp == -1)
+        CosaPhpExtLog("exec waitpid failed, error:%s\n", strerror(errno));
+    }
     wordfree(&args);
     return 1;
   }
@@ -231,10 +236,27 @@ static duk_ret_t do_exec(duk_context *ctx)
 
   free(line);
   fclose(pipe_stream);
-  waitpid(pid, &status, 0);
-  if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
   {
-    CosaPhpExtLog("exec command exited abnormally, status=%d\n", status);
+    pid_t wp;
+    do { wp = waitpid(pid, &status, 0); } while (wp == -1 && errno == EINTR);
+    if (wp == -1)
+    {
+      CosaPhpExtLog("exec waitpid failed, error:%s\n", strerror(errno));
+    }
+    else if (WIFEXITED(status))
+    {
+      int exit_code = WEXITSTATUS(status);
+      if (exit_code != 0)
+        CosaPhpExtLog("exec command exited with code %d\n", exit_code);
+    }
+    else if (WIFSIGNALED(status))
+    {
+      CosaPhpExtLog("exec command killed by signal %d\n", WTERMSIG(status));
+    }
+    else
+    {
+      CosaPhpExtLog("exec command exited abnormally, raw status=%d\n", status);
+    }
   }
   wordfree(&args);
 
