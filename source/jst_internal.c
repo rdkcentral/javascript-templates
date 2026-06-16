@@ -19,6 +19,7 @@
 #include "jst_internal.h"
 #include <stdio.h>
 #include <errno.h>
+#include <stdint.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
@@ -194,12 +195,14 @@ int read_file(const char *filename, char** bufout, size_t* lenout)
       return 0;
     }
 
-    if((unsigned long)ftell_result > (unsigned long)((size_t)-1))
+#if LONG_MAX > SIZE_MAX
+    if((unsigned long)ftell_result > (unsigned long)SIZE_MAX)
     {
       fclose(pf);
       fprintf(stderr, "Error: file too large to represent safely %s\n", filename);
       return 0;
     }
+#endif
 
     size = (size_t)ftell_result;
   }
