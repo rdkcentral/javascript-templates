@@ -112,34 +112,50 @@ static duk_ret_t session_start(duk_context *ctx)
     if(sesid)
     {
       sesid += 7;
-      int len = strlen(sesid);
-      if(len >= SESSION_ID_LENGTH)
+      size_t sesid_token_len = strcspn(sesid, ";");
+      if(sesid_token_len == SESSION_ID_LENGTH)
       {
-           int idx = SESSION_PREFIX_LEN;
-           int isvalid = 1;
-           /* Validate session ID*/
-           while ( idx < SESSION_ID_LENGTH) {
-              if (!isalnum(sesid[idx])) {
-                      CosaPhpExtLog("Invalid SessionID\n");
-                      isvalid = 0;
-                      break;
-              }
-              idx++;
-           }
-           if(isvalid)
-           {
-             sesid = strtok(sesid, ";");
-             const char filename[SESSION_FILE_MAX_PATH];
-             snprintf(filename, SESSION_FILE_MAX_PATH, "%s/%s", SESSION_TMP_DIR, sesid);
-             CosaPhpExtLog("%s: Checking for Session file %s\n", __PRETTY_FUNCTION__, filename);
-             if (access(filename, F_OK) == 0)
-             {
-               CosaPhpExtLog("%s: Session file %s exists\n", __PRETTY_FUNCTION__, filename);
-               strncpy(session_identifier, sesid, SESSION_ID_LENGTH);
-             } else {
-               CosaPhpExtLog("%s: Failed to read Session file %s\n", __PRETTY_FUNCTION__, filename);
-             }
-           }
+        int idx = SESSION_PREFIX_LEN;
+        int isvalid = 1;
+        char sesid_token[SESSION_ID_LENGTH+1];
+
+        memcpy(sesid_token, sesid, SESSION_ID_LENGTH);
+        sesid_token[SESSION_ID_LENGTH] = '\0';
+
+        if(strncmp(sesid_token, SESSION_PREFIX, SESSION_PREFIX_LEN) != 0)
+        {
+          CosaPhpExtLog("Invalid SessionID prefix\n");
+          isvalid = 0;
+        }
+
+        /* Validate random portion of session ID */
+        while (idx < SESSION_ID_LENGTH && isvalid)
+        {
+          if(!isalnum((unsigned char)sesid_token[idx]))
+          {
+            CosaPhpExtLog("Invalid SessionID\n");
+            isvalid = 0;
+            break;
+          }
+          idx++;
+        }
+
+        if(isvalid)
+        {
+          char filename[SESSION_FILE_MAX_PATH];
+          snprintf(filename, SESSION_FILE_MAX_PATH, "%s/%s", SESSION_TMP_DIR, sesid_token);
+          CosaPhpExtLog("%s: Checking for Session file %s\n", __PRETTY_FUNCTION__, filename);
+          if (access(filename, F_OK) == 0)
+          {
+            CosaPhpExtLog("%s: Session file %s exists\n", __PRETTY_FUNCTION__, filename);
+            strncpy(session_identifier, sesid_token, SESSION_ID_LENGTH);
+            session_identifier[SESSION_ID_LENGTH] = '\0';
+          }
+          else
+          {
+            CosaPhpExtLog("%s: Failed to read Session file %s\n", __PRETTY_FUNCTION__, filename);
+          }
+        }
       } else {
            CosaPhpExtLog("Invalid SessionID Entropy\n");
       }
@@ -162,8 +178,15 @@ static duk_ret_t session_create(duk_context *ctx)
   int i = 0, n = 0;
   uint8_t bytes[SESSION_ID_BYTES_LENGTH];
   char* session_id = NULL;
+  char* new_session_identifier = NULL;
 
   session_id = (char*)malloc(SESSION_ID_BYTES_LENGTH+1);
+  if(!session_id)
+  {
+    CosaPhpExtLog("Failed to allocate session_id!\n");
+    RETURN_FALSE;
+  }
+
   n = syscall(SYS_getrandom, bytes, SESSION_ID_BYTES_LENGTH, 0);
   if(n != SESSION_ID_BYTES_LENGTH)
   {
@@ -177,16 +200,25 @@ static duk_ret_t session_create(duk_context *ctx)
     session_id[i] = BYTE_TO_PRINTABLE_HEX_CODE(bytes[i]);
   }
 
-  session_identifier = (char*)malloc(SESSION_ID_LENGTH+1);
-  if(!session_identifier)
+  new_session_identifier = (char*)malloc(SESSION_ID_LENGTH+1);
+  if(!new_session_identifier)
   {
     CosaPhpExtLog("Failed to allocate session_identifier!\n");
+    free(session_id);
     RETURN_FALSE;
   }
-  memset(session_identifier, 0, SESSION_ID_LENGTH+1);
+  memset(new_session_identifier, 0, SESSION_ID_LENGTH+1);
 
   session_id[SESSION_ID_BYTES_LENGTH] = '\0';
-  snprintf(session_identifier, SESSION_ID_LENGTH+1, "%s%s", SESSION_PREFIX, session_id);
+  snprintf(new_session_identifier, SESSION_ID_LENGTH+1, "%s%s", SESSION_PREFIX, session_id);
+
+  free(session_id);
+
+  if(session_identifier)
+  {
+    free(session_identifier);
+  }
+  session_identifier = new_session_identifier;
 
   RETURN_TRUE;
   return 1;

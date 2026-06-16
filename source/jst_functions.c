@@ -21,6 +21,8 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <wordexp.h>
 #include "jst_internal.h"
 #include "jst.h"
 
@@ -153,6 +155,12 @@ static duk_ret_t do_exec(duk_context *ctx)
   ssize_t nread;
   duk_idx_t idx;
   int index = 0;
+  wordexp_t args;
+  int wr;
+  int pipes[2] = { -1, -1 };
+  pid_t pid;
+  FILE* pipe_stream = NULL;
+  int status = 0;
 
   idx = duk_push_array(ctx);
 
@@ -161,15 +169,65 @@ static duk_ret_t do_exec(duk_context *ctx)
 
   CosaPhpExtLog("exec command=%s\n", command);
 
-  FILE* pipe = popen(command, "r");
-  if (!pipe)
+  wr = wordexp(command, &args, WRDE_NOCMD);
+  if (wr != 0)
   {
-    CosaPhpExtLog("exec failed to open pipe\n");
-    duk_pop(ctx);
-    return 1;    
+    CosaPhpExtLog("exec failed to parse command, wordexp status=%d\n", wr);
+    return 1;
+  }
+  if (args.we_wordc == 0)
+  {
+    CosaPhpExtLog("exec empty command after expansion\n");
+    wordfree(&args);
+    return 1;
   }
 
-  while((nread = getline(&line, &len, pipe)) != -1)
+  if (pipe(pipes) != 0)
+  {
+    CosaPhpExtLog("exec failed to create pipe, error:%s\n", strerror(errno));
+    wordfree(&args);
+    return 1;
+  }
+
+  pid = fork();
+  if (pid < 0)
+  {
+    CosaPhpExtLog("exec fork failed, error:%s\n", strerror(errno));
+    close(pipes[0]);
+    close(pipes[1]);
+    wordfree(&args);
+    return 1;
+  }
+
+  if (pid == 0)
+  {
+    close(pipes[0]);
+    if (dup2(pipes[1], STDOUT_FILENO) < 0)
+    {
+      _exit(127);
+    }
+    close(pipes[1]);
+    execvp(args.we_wordv[0], args.we_wordv);
+    _exit(127);
+  }
+
+  close(pipes[1]);
+  pipe_stream = fdopen(pipes[0], "r");
+  if (!pipe_stream)
+  {
+    CosaPhpExtLog("exec failed to open read pipe, error:%s\n", strerror(errno));
+    close(pipes[0]);
+    {
+      pid_t wp;
+      do { wp = waitpid(pid, &status, 0); } while (wp == -1 && errno == EINTR);
+      if (wp == -1)
+        CosaPhpExtLog("exec waitpid failed, error:%s\n", strerror(errno));
+    }
+    wordfree(&args);
+    return 1;
+  }
+
+  while((nread = getline(&line, &len, pipe_stream)) != -1)
   {
     CosaPhpExtLog("exec line: %s\n", line);
     duk_push_string(ctx, line);
@@ -177,7 +235,30 @@ static duk_ret_t do_exec(duk_context *ctx)
   }
 
   free(line);
-  pclose(pipe);
+  fclose(pipe_stream);
+  {
+    pid_t wp;
+    do { wp = waitpid(pid, &status, 0); } while (wp == -1 && errno == EINTR);
+    if (wp == -1)
+    {
+      CosaPhpExtLog("exec waitpid failed, error:%s\n", strerror(errno));
+    }
+    else if (WIFEXITED(status))
+    {
+      int exit_code = WEXITSTATUS(status);
+      if (exit_code != 0)
+        CosaPhpExtLog("exec command exited with code %d\n", exit_code);
+    }
+    else if (WIFSIGNALED(status))
+    {
+      CosaPhpExtLog("exec command killed by signal %d\n", WTERMSIG(status));
+    }
+    else
+    {
+      CosaPhpExtLog("exec command exited abnormally, raw status=%d\n", status);
+    }
+  }
+  wordfree(&args);
 
   return 1;
 }
@@ -615,7 +696,7 @@ static duk_ret_t do_openssl_verify_with_cert(duk_context *ctx)
   /* === NOW PROCEED WITH SIGNATURE VERIFICATION === */
 
   //open certificate file
-  if(memcmp(filepath, "file://", sizeof("file://")-1) != 0)
+  if(strncmp(filepath, "file://", sizeof("file://") - 1) != 0)
   {
     CosaPhpExtLog("openssl_verify_with_cert: file %s doesn't begin with 'file://'\n", filepath);
     free(sig_bytes);
