@@ -149,6 +149,7 @@ static duk_ret_t session_start(duk_context *ctx)
           {
             CosaPhpExtLog("%s: Session file %s exists\n", __PRETTY_FUNCTION__, filename);
             strncpy(session_identifier, sesid_token, SESSION_ID_LENGTH);
+            session_identifier[SESSION_ID_LENGTH] = '\0';
           }
           else
           {
