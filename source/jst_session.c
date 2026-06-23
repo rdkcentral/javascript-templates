@@ -185,6 +185,9 @@ static duk_ret_t session_create(duk_context *ctx)
 
   if(session_identifier)
   {
+    char filename[SESSION_FILE_MAX_PATH];
+    snprintf(filename, SESSION_FILE_MAX_PATH, "%s/%s", SESSION_TMP_DIR, session_identifier);
+    unlink(filename);
     free(session_identifier);
     session_identifier = NULL;
   }
