@@ -91,6 +91,18 @@ endif(TEST_COMCAST_WEBUI)
 
 gtest_discover_tests(parser_test)
 
+# testGroup.openssl_verify
+add_executable(
+  openssl_verify_test
+  ../tests/main.cpp
+  ../tests/openssl_verify_test.cpp
+  ../source/jst_functions.c
+  ../source/jst_internal.c
+  ../source/duktape/duktape.c)
+target_link_libraries(openssl_verify_test libgtest libgmock -pthread -lcrypto ${CURL_LIBRARIES})
+
+gtest_discover_tests(openssl_verify_test)
+
 #to run tests:
 # cd build/tests/parser
 # ../parser_test
