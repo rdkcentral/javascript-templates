@@ -164,6 +164,7 @@ int read_file(const char *filename, char** bufout, size_t* lenout)
 {
   FILE* pf;
   size_t size;
+  long tell_result;
   size_t rc;
   char* buf;
 
@@ -179,9 +180,29 @@ int read_file(const char *filename, char** bufout, size_t* lenout)
     return 0;
   }
 
-  fseek(pf, 0, SEEK_END); 
-  size = ftell(pf);
-  rewind(pf);
+  if(fseek(pf, 0, SEEK_END) != 0)
+  {
+    fclose(pf);
+    fprintf(stderr, "Error: seek failed %s\n", filename);
+    return 0;
+  }
+
+  tell_result = ftell(pf);
+  if(tell_result < 0)
+  {
+    fclose(pf);
+    fprintf(stderr, "Error: tell failed %s\n", filename);
+    return 0;
+  }
+
+  size = (size_t)tell_result;
+
+  if(fseek(pf, 0, SEEK_SET) != 0)
+  {
+    fclose(pf);
+    fprintf(stderr, "Error: rewind failed %s\n", filename);
+    return 0;
+  }
 
   buf = (char*)calloc(size+1, 1);
   if(!buf)
