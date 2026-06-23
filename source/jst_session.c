@@ -164,6 +164,12 @@ static duk_ret_t session_create(duk_context *ctx)
   char* session_id = NULL;
 
   session_id = (char*)malloc(SESSION_ID_BYTES_LENGTH+1);
+  if(!session_id)
+  {
+    CosaPhpExtLog("Failed to allocate session_id!\n");
+    RETURN_FALSE;
+  }
+
   n = syscall(SYS_getrandom, bytes, SESSION_ID_BYTES_LENGTH, 0);
   if(n != SESSION_ID_BYTES_LENGTH)
   {
@@ -177,16 +183,24 @@ static duk_ret_t session_create(duk_context *ctx)
     session_id[i] = BYTE_TO_PRINTABLE_HEX_CODE(bytes[i]);
   }
 
+  if(session_identifier)
+  {
+    free(session_identifier);
+    session_identifier = NULL;
+  }
+
   session_identifier = (char*)malloc(SESSION_ID_LENGTH+1);
   if(!session_identifier)
   {
     CosaPhpExtLog("Failed to allocate session_identifier!\n");
+    free(session_id);
     RETURN_FALSE;
   }
   memset(session_identifier, 0, SESSION_ID_LENGTH+1);
 
   session_id[SESSION_ID_BYTES_LENGTH] = '\0';
   snprintf(session_identifier, SESSION_ID_LENGTH+1, "%s%s", SESSION_PREFIX, session_id);
+  free(session_id);
 
   RETURN_TRUE;
   return 1;
