@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <fstream>
 #include <string>
+#include <unistd.h>
 
 extern "C" {
 #include "jst.h"
@@ -99,12 +100,14 @@ static std::string create_temp_public_key_file()
       "o63eNbUsVTNff7kwh28ykVfoCENKz7LxyzKDn5XxhxL7sRKqzZo4PM8CAwEAAQ==\n"
       "-----END PUBLIC KEY-----\n";
 
-  char tempName[L_tmpnam] = {0};
-  if (std::tmpnam(tempName) == nullptr) {
+  char tempTemplate[] = "/tmp/jst_pubkey_XXXXXX";
+  int fd = mkstemp(tempTemplate);
+  if (fd < 0) {
     return std::string();
   }
+  close(fd);
 
-  std::ofstream out(tempName, std::ios::out | std::ios::trunc);
+  std::ofstream out(tempTemplate, std::ios::out | std::ios::trunc);
   if (!out.is_open()) {
     return std::string();
   }
@@ -112,7 +115,7 @@ static std::string create_temp_public_key_file()
   out << kPublicKeyPem;
   out.close();
 
-  return std::string(tempName);
+  return std::string(tempTemplate);
 }
 
 TEST(openssl_verify_with_cert, handles_empty_filepath_without_crash)

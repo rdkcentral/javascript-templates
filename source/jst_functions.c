@@ -91,6 +91,19 @@ static int parse_exec_argv(char* command_buffer, char*** argv_out)
   return 1;
 }
 
+static int wait_for_child_process(pid_t child_pid, int* status_out)
+{
+  int rc;
+
+  do
+  {
+    rc = waitpid(child_pid, status_out, 0);
+  }
+  while(rc == -1 && errno == EINTR);
+
+  return rc;
+}
+
 
 static duk_ret_t do_getenv(duk_context *ctx)
 {
@@ -202,12 +215,14 @@ static duk_ret_t do_exec(duk_context *ctx)
   int pipefd[2] = {-1, -1};
   pid_t child_pid;
   int status;
-  FILE* pipe = NULL;
+  FILE* pipe_stream = NULL;
   char *line = NULL;
   size_t len = 0;
   ssize_t nread;
   duk_idx_t idx;
   int index = 0;
+
+  idx = duk_push_array(ctx);
 
   if (!parse_parameter(__FUNCTION__, ctx, "s", &command))
     return 1;
@@ -239,8 +254,6 @@ static duk_ret_t do_exec(duk_context *ctx)
     free(command_copy);
     RETURN_FALSE;
   }
-
-  idx = duk_push_array(ctx);
 
   if(pipe(pipefd) != 0)
   {
@@ -276,19 +289,20 @@ static duk_ret_t do_exec(duk_context *ctx)
   close(pipefd[1]);
   pipefd[1] = -1;
 
-  pipe = fdopen(pipefd[0], "r");
-  if (!pipe)
+  pipe_stream = fdopen(pipefd[0], "r");
+  if (!pipe_stream)
   {
     CosaPhpExtLog("exec failed to open read stream\n");
     close(pipefd[0]);
     free(argv);
     free(command_copy);
     duk_pop(ctx);
-    waitpid(child_pid, &status, 0);
+    if(wait_for_child_process(child_pid, &status) == -1)
+      CosaPhpExtLog("exec waitpid failed: %s\n", strerror(errno));
     RETURN_FALSE;
   }
 
-  while((nread = getline(&line, &len, pipe)) != -1)
+  while((nread = getline(&line, &len, pipe_stream)) != -1)
   {
     CosaPhpExtLog("exec line: %s\n", line);
     duk_push_string(ctx, line);
@@ -296,10 +310,13 @@ static duk_ret_t do_exec(duk_context *ctx)
   }
 
   free(line);
-  fclose(pipe);
+  fclose(pipe_stream);
 
-  waitpid(child_pid, &status, 0);
-  if(WIFEXITED(status) && WEXITSTATUS(status) != 0)
+  if(wait_for_child_process(child_pid, &status) == -1)
+  {
+    CosaPhpExtLog("exec waitpid failed: %s\n", strerror(errno));
+  }
+  else if(WIFEXITED(status) && WEXITSTATUS(status) != 0)
   {
     CosaPhpExtLog("exec command exited with status=%d\n", WEXITSTATUS(status));
   }
