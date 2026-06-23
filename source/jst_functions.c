@@ -20,7 +20,9 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <errno.h>
+#include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include "jst_internal.h"
 #include "jst.h"
 
@@ -41,6 +43,53 @@ typedef struct {
     size_t datasize;        // data size
     size_t memsize;         // allocated memory size (if applicable)
 } MemData;
+
+static int has_shell_metachar(const char* command)
+{
+  static const char* kShellMetaChars = ";&|`$<>(){}[]*?!\\\n\r";
+  return strpbrk(command, kShellMetaChars) != NULL;
+}
+
+static int parse_exec_argv(char* command_buffer, char*** argv_out)
+{
+  size_t argc = 0;
+  size_t cap = 8;
+  char** argv = NULL;
+  char* saveptr = NULL;
+  char* token = NULL;
+
+  argv = (char**)malloc(cap * sizeof(char*));
+  if(!argv)
+    return 0;
+
+  token = strtok_r(command_buffer, " \t", &saveptr);
+  while(token)
+  {
+    if(argc + 1 >= cap)
+    {
+      char** tmp = realloc(argv, (cap * 2) * sizeof(char*));
+      if(!tmp)
+      {
+        free(argv);
+        return 0;
+      }
+      argv = tmp;
+      cap *= 2;
+    }
+    argv[argc++] = token;
+    token = strtok_r(NULL, " \t", &saveptr);
+  }
+
+  if(argc == 0)
+  {
+    free(argv);
+    return 0;
+  }
+
+  argv[argc] = NULL;
+  *argv_out = argv;
+  return 1;
+}
 
 
 static duk_ret_t do_getenv(duk_context *ctx)
@@ -148,25 +197,95 @@ static duk_ret_t do_gettext(duk_context *ctx)
 static duk_ret_t do_exec(duk_context *ctx)
 {
   char* command;
+  char* command_copy = NULL;
+  char** argv = NULL;
+  int pipefd[2] = {-1, -1};
+  pid_t child_pid;
+  int status;
+  FILE* pipe = NULL;
   char *line = NULL;
   size_t len = 0;
   ssize_t nread;
   duk_idx_t idx;
   int index = 0;
 
-  idx = duk_push_array(ctx);
-
   if (!parse_parameter(__FUNCTION__, ctx, "s", &command))
     return 1;
 
+  if(!command || command[0] == '\0')
+  {
+    CosaPhpExtLog("exec rejected empty command\n");
+    RETURN_FALSE;
+  }
+
+  if(has_shell_metachar(command))
+  {
+    CosaPhpExtLog("exec rejected unsafe command containing shell metacharacters\n");
+    RETURN_FALSE;
+  }
+
   CosaPhpExtLog("exec command=%s\n", command);
 
-  FILE* pipe = popen(command, "r");
+  command_copy = strdup(command);
+  if(!command_copy)
+  {
+    CosaPhpExtLog("exec failed to allocate command copy\n");
+    RETURN_FALSE;
+  }
+
+  if(!parse_exec_argv(command_copy, &argv))
+  {
+    CosaPhpExtLog("exec failed to parse command arguments\n");
+    free(command_copy);
+    RETURN_FALSE;
+  }
+
+  idx = duk_push_array(ctx);
+
+  if(pipe(pipefd) != 0)
+  {
+    CosaPhpExtLog("exec failed to create pipe\n");
+    free(argv);
+    free(command_copy);
+    duk_pop(ctx);
+    RETURN_FALSE;
+  }
+
+  child_pid = fork();
+  if(child_pid < 0)
+  {
+    CosaPhpExtLog("exec failed to fork\n");
+    close(pipefd[0]);
+    close(pipefd[1]);
+    free(argv);
+    free(command_copy);
+    duk_pop(ctx);
+    RETURN_FALSE;
+  }
+
+  if(child_pid == 0)
+  {
+    close(pipefd[0]);
+    if(dup2(pipefd[1], STDOUT_FILENO) < 0)
+      _exit(127);
+    close(pipefd[1]);
+    execvp(argv[0], argv);
+    _exit(127);
+  }
+
+  close(pipefd[1]);
+  pipefd[1] = -1;
+
+  pipe = fdopen(pipefd[0], "r");
   if (!pipe)
   {
-    CosaPhpExtLog("exec failed to open pipe\n");
+    CosaPhpExtLog("exec failed to open read stream\n");
+    close(pipefd[0]);
+    free(argv);
+    free(command_copy);
     duk_pop(ctx);
-    return 1;    
+    waitpid(child_pid, &status, 0);
+    RETURN_FALSE;
   }
 
   while((nread = getline(&line, &len, pipe)) != -1)
@@ -177,7 +296,16 @@ static duk_ret_t do_exec(duk_context *ctx)
   }
 
   free(line);
-  pclose(pipe);
+  fclose(pipe);
+
+  waitpid(child_pid, &status, 0);
+  if(WIFEXITED(status) && WEXITSTATUS(status) != 0)
+  {
+    CosaPhpExtLog("exec command exited with status=%d\n", WEXITSTATUS(status));
+  }
+
+  free(argv);
+  free(command_copy);
 
   return 1;
 }
@@ -615,7 +743,7 @@ static duk_ret_t do_openssl_verify_with_cert(duk_context *ctx)
   /* === NOW PROCEED WITH SIGNATURE VERIFICATION === */
 
   //open certificate file
-  if(memcmp(filepath, "file://", sizeof("file://")-1) != 0)
+  if(strncmp(filepath, "file://", sizeof("file://")-1) != 0)
   {
     CosaPhpExtLog("openssl_verify_with_cert: file %s doesn't begin with 'file://'\n", filepath);
     free(sig_bytes);
