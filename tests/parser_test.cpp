@@ -48,6 +48,34 @@ private:
   char* buffer_;
 };
 
+class EnvVarGuard
+{
+public:
+  explicit EnvVarGuard(const char* name)
+      : name_(name), had_value_(false)
+  {
+    const char* value = getenv(name_);
+    if (value)
+    {
+      old_value_ = value;
+      had_value_ = true;
+    }
+  }
+
+  ~EnvVarGuard()
+  {
+    if (had_value_)
+      setenv(name_, old_value_.c_str(), 1);
+    else
+      unsetenv(name_);
+  }
+
+private:
+  const char* name_;
+  std::string old_value_;
+  bool had_value_;
+};
+
 int recurseDirectory(const string& path, vector<string>& files, const string& match)
 {
   DIR *dir;
@@ -124,6 +152,8 @@ TEST(general, read_file_directory_input_returns_failure)
 
 TEST(general, session_start_does_not_modify_cookie_env)
 {
+  EnvVarGuard http_cookie_guard("HTTP_COOKIE");
+
   const char* sesid = "jst_sessABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
   char session_file_path[128];
   char cookie[256];
@@ -170,6 +200,8 @@ TEST(general, session_start_does_not_modify_cookie_env)
 
 TEST(general, session_start_rejects_invalid_session_prefix)
 {
+  EnvVarGuard http_cookie_guard("HTTP_COOKIE");
+
   const char* invalid_sesid = "bad_prefABCDEFGHIJKLMNOPQRSTUVWXYZ012345";
   char session_file_path[128];
   char cookie[256];

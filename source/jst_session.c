@@ -137,7 +137,7 @@ static duk_ret_t session_start(duk_context *ctx)
 
            /* Validate session ID*/
            while ( idx < SESSION_ID_LENGTH) {
-              if (!isalnum(sesid_copy[idx])) {
+              if (!isalnum((unsigned char)sesid_copy[idx])) {
                       CosaPhpExtLog("Invalid SessionID\n");
                       isvalid = 0;
                       break;
@@ -165,6 +165,8 @@ static duk_ret_t session_start(duk_context *ctx)
   if(!session_identifier[0])
   {
    CosaPhpExtLog("Invalid Session\n");
+    free(session_identifier);
+    session_identifier = NULL;
    RETURN_FALSE;
   }
 
@@ -304,7 +306,7 @@ static duk_ret_t session_get_data(duk_context *ctx)
           /*check if we are at end of file content, ignoring whitespace*/
           for(j = i+1; j < content_len; ++j)
           {
-            if(!isspace(s1[j]))
+            if(!isspace((unsigned char)s1[j]))
             {
               /*more content found*/
               break;
