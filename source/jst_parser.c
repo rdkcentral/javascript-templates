@@ -129,24 +129,43 @@ static int template_process(char** buf, size_t* buflen, int top);
 
 static void log_syntax_error(char* err, char* s1, char* cur, char* end)
 {
+  const char* err_msg;
   char* line_end;
+  char* src_end;
   int line_len;
+  int src_len;
 
-  if(!s1 || !cur || !end)
+  err_msg = err ? err : "unknown";
+
+  if(!cur || !end)
   {
-    log_debug_message("syntax error. malformed include: %s\n", err ? err : "unknown");
+    log_debug_message("syntax error. malformed include: %s\n", err_msg);
     return;
   }
 
-  line_end = cur;
+  if(cur > end)
+    cur = end;
+
+  if(!s1)
+    s1 = cur;
+
+  line_end = s1;
   while(line_end < end && *line_end != '\n' && *line_end != '\r')
     line_end++;
 
-  line_len = (int)(line_end - cur);
+  src_end = cur;
+  while(src_end < end && *src_end != '\n' && *src_end != '\r')
+    src_end++;
+
+  line_len = (int)(line_end - s1);
+  src_len = (int)(src_end - cur);
+
   if(line_len < 0)
     line_len = 0;
+  if(src_len < 0)
+    src_len = 0;
 
-  log_debug_message("syntax error. malformed include: %s. line: %.*s src:%.*s\n", err, line_len, cur, line_len, cur);
+  log_debug_message("syntax error. malformed include: %s. line: %.*s src:%.*s\n", err_msg, line_len, s1, src_len, cur);
 }
 
 static void template_write_block(growing_buffer* bufout, template_block* block)
