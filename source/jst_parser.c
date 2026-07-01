@@ -129,15 +129,24 @@ static int template_process(char** buf, size_t* buflen, int top);
 
 static void log_syntax_error(char* err, char* s1, char* cur, char* end)
 {
-  char ch;
+  char* line_end;
+  int line_len;
 
-  while(cur != end && *cur != '\n' && *cur != '\r')
-    cur++;
+  if(!s1 || !cur || !end)
+  {
+    log_debug_message("syntax error. malformed include: %s\n", err ? err : "unknown");
+    return;
+  }
 
-  ch = *cur;
-  *cur = 0;
-  log_debug_message("syntax error. malformed include: %s. line: %s src:%s\n", err, s1, cur);
-  *cur = ch;
+  line_end = cur;
+  while(line_end < end && *line_end != '\n' && *line_end != '\r')
+    line_end++;
+
+  line_len = (int)(line_end - cur);
+  if(line_len < 0)
+    line_len = 0;
+
+  log_debug_message("syntax error. malformed include: %s. line: %.*s src:%.*s\n", err, line_len, cur, line_len, cur);
 }
 
 static void template_write_block(growing_buffer* bufout, template_block* block)
