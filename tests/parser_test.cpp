@@ -20,7 +20,10 @@
 #include <string>
 #include <fstream>
 #include <streambuf>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <vector>
 #include "jst.h"
 #include <dirent.h>
 #include <sys/types.h>
@@ -28,6 +31,7 @@
 #include <unistd.h>
 
 extern "C" {
+  duk_ret_t ccsp_post_module_open(duk_context *ctx);
   duk_ret_t ccsp_session_module_open(duk_context *ctx);
 }
 
@@ -45,6 +49,105 @@ public:
 private:
   char* buffer_;
 };
+
+class EnvVarGuard
+{
+public:
+  explicit EnvVarGuard(const char* name)
+      : name_(name), had_value_(false)
+  {
+    const char* value = getenv(name_);
+    if (value)
+    {
+      old_value_ = value;
+      had_value_ = true;
+    }
+  }
+
+  ~EnvVarGuard()
+  {
+    if (had_value_)
+      setenv(name_, old_value_.c_str(), 1);
+    else
+      unsetenv(name_);
+  }
+
+  void set(const char* value)
+  {
+    if (value)
+      setenv(name_, value, 1);
+    else
+      unsetenv(name_);
+  }
+
+private:
+  const char* name_;
+  std::string old_value_;
+  bool had_value_;
+};
+
+class StdinRedirectGuard
+{
+public:
+  StdinRedirectGuard(const char* data, size_t length)
+      : temp_(tmpfile()), original_fd_(-1), active_(false)
+  {
+    if (!temp_)
+      return;
+
+    if (fwrite(data, 1, length, temp_) != length)
+      return;
+
+    fflush(temp_);
+    rewind(temp_);
+
+    original_fd_ = dup(fileno(stdin));
+    if (original_fd_ < 0)
+      return;
+
+    if (dup2(fileno(temp_), fileno(stdin)) < 0)
+      return;
+
+    active_ = true;
+  }
+
+  ~StdinRedirectGuard()
+  {
+    if (original_fd_ >= 0)
+    {
+      dup2(original_fd_, fileno(stdin));
+      close(original_fd_);
+    }
+
+    if (temp_)
+      fclose(temp_);
+  }
+
+  bool is_active() const
+  {
+    return active_;
+  }
+
+private:
+  FILE* temp_;
+  int original_fd_;
+  bool active_;
+};
+
+static string getFieldValue(const string& input, const string& key)
+{
+  string pattern = key + "=";
+  size_t start = input.find(pattern);
+  if (start == string::npos)
+    return "";
+
+  start += pattern.length();
+  size_t end = input.find('&', start);
+  if (end == string::npos)
+    return input.substr(start);
+
+  return input.substr(start, end - start);
+}
 
 int recurseDirectory(const string& path, vector<string>& files, const string& match)
 {
@@ -136,6 +239,54 @@ TEST(general, session_create_multiple_calls_succeed)
   duk_get_prop_string(ctx, -1, "destroy");
   ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
   EXPECT_TRUE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  duk_destroy_heap(ctx);
+}
+
+TEST(general, multipart_file_only_request_leaves_post_unset)
+{
+  const string boundary = "----jstBoundary123";
+  const string body =
+      string("--") + boundary + "\r\n"
+      + "Content-Disposition: form-data; name=\"upload\"; filename=\"config.bin\"\r\n"
+      + "Content-Type: application/octet-stream\r\n"
+      + "\r\n"
+      + "abc123\r\n"
+      + string("--") + boundary + "--\r\n";
+  const string content_type = "multipart/form-data; boundary=" + boundary;
+  const string content_length = to_string(body.size());
+
+  EnvVarGuard content_type_guard("CONTENT_TYPE");
+  EnvVarGuard content_length_guard("CONTENT_LENGTH");
+  content_type_guard.set(content_type.c_str());
+  content_length_guard.set(content_length.c_str());
+
+  StdinRedirectGuard stdin_guard(body.c_str(), body.size());
+  ASSERT_TRUE(stdin_guard.is_active());
+
+  duk_context* ctx = duk_create_heap_default();
+  ASSERT_NE(ctx, nullptr);
+
+  duk_push_c_function(ctx, ccsp_post_module_open, 0);
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  duk_put_global_string(ctx, "ccsp_post");
+
+  duk_get_global_string(ctx, "ccsp_post");
+  duk_get_prop_string(ctx, -1, "getFiles");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  ASSERT_TRUE(duk_is_string(ctx, -1));
+  string files_value = duk_get_string(ctx, -1);
+  duk_pop_2(ctx);
+
+  const string tmp_name = getFieldValue(files_value, "tmp_name");
+  if (!tmp_name.empty())
+    remove(tmp_name.c_str());
+
+  duk_get_global_string(ctx, "ccsp_post");
+  duk_get_prop_string(ctx, -1, "getPost");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_FALSE(duk_get_boolean(ctx, -1));
   duk_pop_2(ctx);
 
   duk_destroy_heap(ctx);

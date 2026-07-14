@@ -849,15 +849,10 @@ static void process_multipart_form_data(char* content_data, int content_len, cha
   }
   else
   {
-    /* content_data is freed by the caller (ccsp_post_module_open) after this
-       function returns, so we must copy rather than alias to avoid a double-free
-       which caused SIGSEGV/SIGABRT (signals 11/6) in crash reports. */
-    post_data = strdup(content_data);
-    if(!post_data)
-    {
-      CosaPhpExtLog("failed to allocate post data copy\n");
-      post_data = NULL;
-    }
+    /* Multipart requests with only file parts have no _POST fields. Keep
+       post_data unset so ccsp_post.getPost() continues to mean name=value&...
+       rather than returning the raw multipart body. */
+    post_data = NULL;
   }
 
   for(i=0; i<parts_len; ++i)

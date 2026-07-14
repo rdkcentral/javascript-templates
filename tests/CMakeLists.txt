@@ -73,6 +73,7 @@ add_executable(
   parser_test
   ../tests/parser_test.cpp 
   ../source/jst_parser.c 
+  ../source/jst_post.c
   ../source/jst_session.c
   ../source/jst_internal.c
   ../source/duktape/duktape.c)
