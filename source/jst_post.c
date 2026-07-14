@@ -856,6 +856,7 @@ static void process_multipart_form_data(char* content_data, int content_len, cha
     if(!post_data)
     {
       CosaPhpExtLog("failed to allocate post data copy\n");
+      post_data = NULL;
     }
   }
 
