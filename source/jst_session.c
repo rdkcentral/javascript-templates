@@ -75,6 +75,9 @@ static duk_ret_t session_start(duk_context *ctx)
 {
   CosaPhpExtLog("%s: entered\n", __PRETTY_FUNCTION__);
   const char* cookie;
+  const char* sesid_end;
+  size_t sesid_len;
+  char parsed_sesid[SESSION_ID_LENGTH + 1];
   /* if session already created then do nothing */
   if(session_identifier)
   {
@@ -112,14 +115,20 @@ static duk_ret_t session_start(duk_context *ctx)
     if(sesid)
     {
       sesid += 7;
-      int len = strlen(sesid);
-      if(len >= SESSION_ID_LENGTH)
+      sesid_end = strchr(sesid, ';');
+      sesid_len = sesid_end ? (size_t)(sesid_end - sesid) : strlen(sesid);
+       if(sesid_len == SESSION_ID_LENGTH)
       {
            int idx = SESSION_PREFIX_LEN;
            int isvalid = 1;
+         if(strncmp(sesid, SESSION_PREFIX, SESSION_PREFIX_LEN) != 0)
+         {
+           CosaPhpExtLog("Invalid SessionID prefix\n");
+           isvalid = 0;
+         }
            /* Validate session ID*/
-           while ( idx < SESSION_ID_LENGTH) {
-              if (!isalnum(sesid[idx])) {
+         while (isvalid && idx < SESSION_ID_LENGTH) {
+              if (!isalnum((unsigned char)sesid[idx])) {
                       CosaPhpExtLog("Invalid SessionID\n");
                       isvalid = 0;
                       break;
@@ -128,19 +137,20 @@ static duk_ret_t session_start(duk_context *ctx)
            }
            if(isvalid)
            {
-             sesid = strtok(sesid, ";");
-             const char filename[SESSION_FILE_MAX_PATH];
-             snprintf(filename, SESSION_FILE_MAX_PATH, "%s/%s", SESSION_TMP_DIR, sesid);
+             memcpy(parsed_sesid, sesid, SESSION_ID_LENGTH);
+             parsed_sesid[SESSION_ID_LENGTH] = '\0';
+             char filename[SESSION_FILE_MAX_PATH];
+             snprintf(filename, SESSION_FILE_MAX_PATH, "%s/%s", SESSION_TMP_DIR, parsed_sesid);
              CosaPhpExtLog("%s: Checking for Session file %s\n", __PRETTY_FUNCTION__, filename);
              if (access(filename, F_OK) == 0)
              {
                CosaPhpExtLog("%s: Session file %s exists\n", __PRETTY_FUNCTION__, filename);
-               strncpy(session_identifier, sesid, SESSION_ID_LENGTH);
+               strncpy(session_identifier, parsed_sesid, SESSION_ID_LENGTH);
              } else {
                CosaPhpExtLog("%s: Failed to read Session file %s\n", __PRETTY_FUNCTION__, filename);
              }
            }
-      } else {
+       } else {
            CosaPhpExtLog("Invalid SessionID Entropy\n");
       }
     }
