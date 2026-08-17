@@ -158,6 +158,8 @@ static duk_ret_t session_start(duk_context *ctx)
   if(!session_identifier[0])
   {
    CosaPhpExtLog("Invalid Session\n");
+   free(session_identifier);
+   session_identifier = NULL;
    RETURN_FALSE;
   }
 
