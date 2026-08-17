@@ -75,8 +75,8 @@
       },
       {
         "name": "dbus",
-        "repo": "https://github.com/deepin-community/dbus.git",
-        "branch" : "master",
+        "repo": "https://gitlab.freedesktop.org/dbus/dbus.git",
+        "branch": "dbus-1.14",
         "build": {
           "type": "cmake",
           "build_dir": "build",

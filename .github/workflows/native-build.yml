@@ -6,16 +6,22 @@ on:
   pull_request:
     branches: [ main, 'sprint/**', 'release/**', topic/RDK*, develop ]
 
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
 jobs:
-  build-jst-on-pr:
-    name: Build javascript-templates component in github rdkcentral
+  build-jst-on-push:
+    name: Build javascript-templates component on push
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/rdkcentral/docker-rdk-ci:latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: native build
         run: |
@@ -31,3 +37,185 @@ jobs:
           ./build_tools_workflows/cov_docker_script/build_native.sh ./cov_docker_script/component_config.json "$(pwd)"
         env:
           GITHUB_TOKEN: ${{ secrets.RDKCM_RDKE }}
+
+  build-jst-on-pr:
+    name: Build javascript-templates component on PR
+    needs: detect-source-changes
+    if: github.event_name == 'pull_request' && needs.detect-source-changes.outputs.has_component == 'true'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/rdkcentral/docker-rdk-ci:latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: native build
+        run: |
+          # Trust the workspace
+          git config --global --add safe.directory '*'
+          # Pull the latest changes for the native build system
+          git submodule update --init --recursive --remote
+          # Build and install dependencies
+          chmod +x build_tools_workflows/cov_docker_script/setup_dependencies.sh
+          ./build_tools_workflows/cov_docker_script/setup_dependencies.sh ./cov_docker_script/component_config.json
+          # Build component
+          chmod +x build_tools_workflows/cov_docker_script/build_native.sh
+          ./build_tools_workflows/cov_docker_script/build_native.sh ./cov_docker_script/component_config.json "$(pwd)"
+        env:
+          GITHUB_TOKEN: ${{ secrets.RDKCM_RDKE }}
+
+  detect-source-changes:
+    name: Detect source path changes for CodeQL
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      has_component: ${{ steps.filter.outputs.component }}
+      has_cpp: ${{ steps.filter.outputs.cpp }}
+      has_python: ${{ steps.filter.outputs.python }}
+      has_js: ${{ steps.filter.outputs.javascript }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect changed source paths
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          predicate-quantifier: some-with-excludes
+          filters: |
+            component:
+              - 'source/**/*'
+            cpp:
+              - 'source/**/*.c'
+              - 'source/**/*.h'
+              - 'source/**/*.cpp'
+              - 'tools/**/*.c'
+              - 'tools/**/*.h'
+              - 'tools/**/*.cpp'
+              - 'tests/**/*.c'
+              - 'tests/**/*.h'
+              - 'tests/**/*.cpp'
+            python:
+              - 'build_tools_workflows/**/*.py'
+              - 'cov_docker_script/**/*.py'
+              - 'tools/**/*.py'
+              - 'tests/**/*.py'
+            javascript:
+              - 'source/**/*.js'
+              - 'source/**/*.ts'
+              - 'jsts/**/*.js'
+              - 'jsts/**/*.ts'
+              - 'tests/**/*.js'
+              - 'tests/**/*.ts'
+              - '!jsts/jst_prefix.js'
+              - '!jsts/jst_suffix.js'
+              - '!tests/parser/jst_prefix.js'
+              - '!tests/parser/jst_suffix.js'
+              - '!tests/parser/**/*.jst.parsed'
+
+  codeql-c-cpp:
+    name: CodeQL (C/C++)
+    needs: detect-source-changes
+    if: github.event_name == 'pull_request' && needs.detect-source-changes.outputs.has_cpp == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    container:
+      image: ghcr.io/rdkcentral/docker-rdk-ci:latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL (C/C++)
+        uses: github/codeql-action/init@v4
+        with:
+          languages: c-cpp
+          build-mode: manual
+
+      - name: Build component for CodeQL
+        run: |
+          git config --global --add safe.directory '*'
+          git submodule update --init --recursive
+          chmod +x build_tools_workflows/cov_docker_script/setup_dependencies.sh
+          ./build_tools_workflows/cov_docker_script/setup_dependencies.sh ./cov_docker_script/component_config.json
+          chmod +x build_tools_workflows/cov_docker_script/build_native.sh
+          ./build_tools_workflows/cov_docker_script/build_native.sh ./cov_docker_script/component_config.json "$(pwd)"
+        env:
+          GITHUB_TOKEN: ${{ secrets.RDKCM_RDKE }}
+
+      - name: Analyze C/C++
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: '/language:c-cpp'
+
+  codeql-python:
+    name: CodeQL (Python)
+    needs: detect-source-changes
+    if: github.event_name == 'pull_request' && needs.detect-source-changes.outputs.has_python == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL (Python)
+        uses: github/codeql-action/init@v4
+        with:
+          languages: python
+          build-mode: none
+          config: |
+            paths:
+              - build_tools_workflows
+              - cov_docker_script
+              - tools
+              - tests
+
+      - name: Analyze Python
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: '/language:python'
+
+  codeql-javascript:
+    name: CodeQL (JavaScript)
+    needs: detect-source-changes
+    if: github.event_name == 'pull_request' && needs.detect-source-changes.outputs.has_js == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL (JavaScript)
+        uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          config: |
+            paths:
+              - source
+              - jsts
+              - tests
+            paths-ignore:
+              - jsts/jst_prefix.js
+              - jsts/jst_suffix.js
+              - tests/parser/jst_prefix.js
+              - tests/parser/jst_suffix.js
+              - tests/parser/**/*.jst.parsed
+      - name: Analyze JavaScript
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: '/language:javascript-typescript'
