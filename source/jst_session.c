@@ -71,6 +71,54 @@
 
 static char* session_identifier = NULL;
 
+static int is_valid_session_identifier(const char* session_id)
+{
+  size_t idx;
+
+  if(!session_id)
+    return 0;
+
+  if(strlen(session_id) != SESSION_ID_LENGTH)
+  {
+    CosaPhpExtLog("Invalid SessionID length\n");
+    return 0;
+  }
+
+  if(strncmp(session_id, SESSION_PREFIX, SESSION_PREFIX_LEN) != 0)
+  {
+    CosaPhpExtLog("Invalid SessionID prefix\n");
+    return 0;
+  }
+
+  for(idx = SESSION_PREFIX_LEN; idx < SESSION_ID_LENGTH; ++idx)
+  {
+    if(!isalnum((unsigned char)session_id[idx]))
+    {
+      CosaPhpExtLog("Invalid SessionID token\n");
+      return 0;
+    }
+  }
+
+  return 1;
+}
+
+static int get_session_file_path(const char* session_id, char* path, size_t path_len)
+{
+  int written;
+
+  if(!is_valid_session_identifier(session_id))
+    return 0;
+
+  written = snprintf(path, path_len, "%s/%s", SESSION_TMP_DIR, session_id);
+  if(written < 0 || (size_t)written >= path_len)
+  {
+    CosaPhpExtLog("Failed to build session path\n");
+    return 0;
+  }
+
+  return 1;
+}
+
 static duk_ret_t session_start(duk_context *ctx)
 {
   CosaPhpExtLog("%s: entered\n", __PRETTY_FUNCTION__);
@@ -82,7 +130,12 @@ static duk_ret_t session_start(duk_context *ctx)
   if(session_identifier)
   {
     char path[SESSION_FILE_MAX_PATH];
-    snprintf(path, SESSION_FILE_MAX_PATH, "%s/%s", SESSION_TMP_DIR, session_identifier);
+    if(!get_session_file_path(session_identifier, path, sizeof(path)))
+    {
+      free(session_identifier);
+      session_identifier = NULL;
+      RETURN_FALSE;
+    }
     if(utime(path, NULL) != 0)
     {
       CosaPhpExtLog("failed to update last accesstime on file %s: %s", path, strerror(errno));
@@ -117,48 +170,42 @@ static duk_ret_t session_start(duk_context *ctx)
       sesid += 7;
       sesid_end = strchr(sesid, ';');
       sesid_len = sesid_end ? (size_t)(sesid_end - sesid) : strlen(sesid);
-       if(sesid_len == SESSION_ID_LENGTH)
+      if(sesid_len == SESSION_ID_LENGTH)
       {
-           int idx = SESSION_PREFIX_LEN;
-           int isvalid = 1;
-         if(strncmp(sesid, SESSION_PREFIX, SESSION_PREFIX_LEN) != 0)
-         {
-           CosaPhpExtLog("Invalid SessionID prefix\n");
-           isvalid = 0;
-         }
-           /* Validate session ID*/
-         while (isvalid && idx < SESSION_ID_LENGTH) {
-              if (!isalnum((unsigned char)sesid[idx])) {
-                      CosaPhpExtLog("Invalid SessionID\n");
-                      isvalid = 0;
-                      break;
-              }
-              idx++;
-           }
-           if(isvalid)
-           {
-             memcpy(parsed_sesid, sesid, SESSION_ID_LENGTH);
-             parsed_sesid[SESSION_ID_LENGTH] = '\0';
-             char filename[SESSION_FILE_MAX_PATH];
-             snprintf(filename, SESSION_FILE_MAX_PATH, "%s/%s", SESSION_TMP_DIR, parsed_sesid);
-             CosaPhpExtLog("%s: Checking for Session file %s\n", __PRETTY_FUNCTION__, filename);
-             if (access(filename, F_OK) == 0)
-             {
-               CosaPhpExtLog("%s: Session file %s exists\n", __PRETTY_FUNCTION__, filename);
-               strncpy(session_identifier, parsed_sesid, SESSION_ID_LENGTH);
-             } else {
-               CosaPhpExtLog("%s: Failed to read Session file %s\n", __PRETTY_FUNCTION__, filename);
-             }
-           }
-       } else {
-           CosaPhpExtLog("Invalid SessionID Entropy\n");
+        memcpy(parsed_sesid, sesid, SESSION_ID_LENGTH);
+        parsed_sesid[SESSION_ID_LENGTH] = '\0';
+
+        if(is_valid_session_identifier(parsed_sesid))
+        {
+          char filename[SESSION_FILE_MAX_PATH];
+          if(get_session_file_path(parsed_sesid, filename, sizeof(filename)))
+          {
+            CosaPhpExtLog("%s: Checking for Session file %s\n", __PRETTY_FUNCTION__, filename);
+            if(access(filename, F_OK) == 0)
+            {
+              CosaPhpExtLog("%s: Session file %s exists\n", __PRETTY_FUNCTION__, filename);
+              memcpy(session_identifier, parsed_sesid, SESSION_ID_LENGTH);
+              session_identifier[SESSION_ID_LENGTH] = '\0';
+            }
+            else
+            {
+              CosaPhpExtLog("%s: Failed to read Session file %s\n", __PRETTY_FUNCTION__, filename);
+            }
+          }
+        }
+      }
+      else
+      {
+        CosaPhpExtLog("Invalid SessionID Entropy\n");
       }
     }
   }
   if(!session_identifier[0])
   {
-   CosaPhpExtLog("Invalid Session\n");
-   RETURN_FALSE;
+    CosaPhpExtLog("Invalid Session\n");
+    free(session_identifier);
+    session_identifier = NULL;
+    RETURN_FALSE;
   }
 
   RETURN_TRUE;
@@ -196,8 +243,8 @@ static duk_ret_t session_create(duk_context *ctx)
   if(session_identifier)
   {
     char filename[SESSION_FILE_MAX_PATH];
-    snprintf(filename, SESSION_FILE_MAX_PATH, "%s/%s", SESSION_TMP_DIR, session_identifier);
-    unlink(filename);
+    if(get_session_file_path(session_identifier, filename, sizeof(filename)))
+      unlink(filename);
     free(session_identifier);
     session_identifier = NULL;
   }
@@ -244,7 +291,12 @@ static duk_ret_t session_get_data(duk_context *ctx)
 
   idx = duk_push_object(ctx);
 
-  snprintf(filename, SESSION_FILE_MAX_PATH, "%s/%s", SESSION_TMP_DIR, session_identifier);
+  if(!get_session_file_path(session_identifier, filename, sizeof(filename)))
+  {
+    duk_pop(ctx);
+    duk_push_object(ctx);
+    return 1;
+  }
 
   CosaPhpExtLog( "session_get_data filename=%s\n", filename );
 
@@ -365,7 +417,8 @@ static duk_ret_t session_set_data(duk_context *ctx)
     RETURN_FALSE;
   }
 
-  snprintf(filename, SESSION_FILE_MAX_PATH, "%s/%s", SESSION_TMP_DIR, session_identifier);
+  if(!get_session_file_path(session_identifier, filename, sizeof(filename)))
+    RETURN_FALSE;
 
   CosaPhpExtLog( "session_set_data filename=%s\n", filename );
 
@@ -449,7 +502,12 @@ static duk_ret_t session_destroy(duk_context *ctx)
   if(session_identifier)
   {
     /*remove the session file*/
-    snprintf(filename, SESSION_FILE_MAX_PATH, "%s/%s", SESSION_TMP_DIR, session_identifier);
+    if(!get_session_file_path(session_identifier, filename, sizeof(filename)))
+    {
+      free(session_identifier);
+      session_identifier = NULL;
+      RETURN_FALSE;
+    }
 
     CosaPhpExtLog( "session_destroy removing %s\n", filename );
 
