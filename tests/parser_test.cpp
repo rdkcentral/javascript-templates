@@ -134,6 +134,11 @@ private:
   bool active_;
 };
 
+static std::string makeValidSessionId(char fill)
+{
+  return std::string("jst_sess") + std::string(32, fill);
+}
+
 static string getFieldValue(const string& input, const string& key)
 {
   string pattern = key + "=";
@@ -336,6 +341,117 @@ TEST(general, session_create_destroy_cycle_and_id_format)
   duk_get_prop_string(ctx, -1, "destroy");
   ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
   EXPECT_TRUE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  duk_destroy_heap(ctx);
+}
+
+TEST(general, session_start_accepts_existing_valid_cookie_id)
+{
+  EnvVarGuard cookie_guard("HTTP_COOKIE");
+  const std::string session_id = makeValidSessionId('A');
+  const std::string cookie = "DUKSID=" + session_id;
+  const std::string session_file = "/tmp/" + session_id;
+
+  FILE* file = fopen(session_file.c_str(), "w");
+  ASSERT_NE(file, nullptr);
+  fclose(file);
+
+  cookie_guard.set(cookie.c_str());
+
+  duk_context* ctx = duk_create_heap_default();
+  ASSERT_NE(ctx, nullptr);
+
+  duk_push_c_function(ctx, ccsp_session_module_open, 0);
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  duk_put_global_string(ctx, "ccsp_session");
+
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "start");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_TRUE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "getId");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  ASSERT_TRUE(duk_is_string(ctx, -1));
+  EXPECT_STREQ(duk_get_string(ctx, -1), session_id.c_str());
+  duk_pop_2(ctx);
+
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "destroy");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_TRUE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  duk_destroy_heap(ctx);
+}
+
+TEST(general, session_start_rejects_invalid_cookie_ids)
+{
+  const std::vector<std::string> cookies = {
+      "DUKSID=jst_sessshort",
+      "DUKSID=jst_sessAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/",
+      "DUKSID=jst_sesAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "DUKSID=jst_sessAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA!",
+      "DUKSID=jst_sessAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAextra"};
+
+  for (const std::string& cookie : cookies)
+  {
+    EnvVarGuard cookie_guard("HTTP_COOKIE");
+    cookie_guard.set(cookie.c_str());
+
+    duk_context* ctx = duk_create_heap_default();
+    ASSERT_NE(ctx, nullptr);
+
+    duk_push_c_function(ctx, ccsp_session_module_open, 0);
+    ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+    duk_put_global_string(ctx, "ccsp_session");
+
+    duk_get_global_string(ctx, "ccsp_session");
+    duk_get_prop_string(ctx, -1, "start");
+    ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+    EXPECT_FALSE(duk_get_boolean(ctx, -1)) << "cookie was unexpectedly accepted: " << cookie;
+    duk_pop_2(ctx);
+
+    duk_get_global_string(ctx, "ccsp_session");
+    duk_get_prop_string(ctx, -1, "getStatus");
+    ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+    EXPECT_FALSE(duk_get_boolean(ctx, -1));
+    duk_pop_2(ctx);
+
+    duk_destroy_heap(ctx);
+  }
+}
+
+TEST(general, session_start_rejects_missing_session_file)
+{
+  EnvVarGuard cookie_guard("HTTP_COOKIE");
+  const std::string session_id = makeValidSessionId('B');
+  const std::string cookie = "DUKSID=" + session_id;
+  const std::string session_file = "/tmp/" + session_id;
+
+  unlink(session_file.c_str());
+  cookie_guard.set(cookie.c_str());
+
+  duk_context* ctx = duk_create_heap_default();
+  ASSERT_NE(ctx, nullptr);
+
+  duk_push_c_function(ctx, ccsp_session_module_open, 0);
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  duk_put_global_string(ctx, "ccsp_session");
+
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "start");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_FALSE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "getStatus");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_FALSE(duk_get_boolean(ctx, -1));
   duk_pop_2(ctx);
 
   duk_destroy_heap(ctx);
