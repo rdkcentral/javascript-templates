@@ -83,8 +83,14 @@ var $_jst_session = null;
 function session_start()
 {
   if($_jst_session)
-    return;
-  ccsp_session.start();
+    return true;
+  if(!ccsp_session.start())
+  {
+    /* A stale cookie must not create a proxy backed by an inactive session. */
+    $_jst_session = null;
+    $_SESSION = {};
+    return false;
+  }
   header("Set-Cookie: DUKSID=" + ccsp_session.getId() + ";");
   $_jst_session = ccsp_session.getData();
   $_SESSION = new Proxy($_jst_session, {
@@ -93,18 +99,21 @@ function session_start()
     },
     set: function(obj, prop, val){
       obj[prop] = val;
-      ccsp_session.setData(obj);
+      if(ccsp_session.getStatus())
+        ccsp_session.setData(obj);
       return true;
     },
     deleteProperty(obj, prop) {
       if(prop in obj)
       {
         delete obj[prop];
-        ccsp_session.setData(obj);
+        if(ccsp_session.getStatus())
+          ccsp_session.setData(obj);
       }
       return true;
     }
   });
+  return true;
 }
 function session_id()
 {
@@ -123,7 +132,14 @@ function session_destroy()
   return ccsp_session.destroy();
 }
 function session_unset()
-{//FIXME
+{
+  if(!$_jst_session || !ccsp_session.getStatus())
+    return false;
+
+  for(var $key in $_jst_session)
+    delete $_jst_session[$key];
+
+  return ccsp_session.setData($_jst_session);
 }
 function session_print()
 {

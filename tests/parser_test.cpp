@@ -136,7 +136,7 @@ private:
 
 static std::string makeValidSessionId(char fill)
 {
-  return std::string("jst_sess") + std::string(32, fill);
+  return std::string("jst_sess0") + std::string(31, fill);
 }
 
 static string getFieldValue(const string& input, const string& key)
@@ -346,6 +346,61 @@ TEST(general, session_create_destroy_cycle_and_id_format)
   duk_destroy_heap(ctx);
 }
 
+TEST(general, session_is_secure_detects_request_scheme)
+{
+  EnvVarGuard https_guard("HTTPS");
+  EnvVarGuard request_scheme_guard("REQUEST_SCHEME");
+  EnvVarGuard ssl_protocol_guard("SSL_PROTOCOL");
+  https_guard.set(nullptr);
+  request_scheme_guard.set(nullptr);
+  ssl_protocol_guard.set(nullptr);
+
+  duk_context* ctx = duk_create_heap_default();
+  ASSERT_NE(ctx, nullptr);
+
+  duk_push_c_function(ctx, ccsp_session_module_open, 0);
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  duk_put_global_string(ctx, "ccsp_session");
+
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "isSecure");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_FALSE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  https_guard.set("on");
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "isSecure");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_TRUE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  https_guard.set("off");
+  request_scheme_guard.set("https");
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "isSecure");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_TRUE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  request_scheme_guard.set("http");
+  ssl_protocol_guard.set("TLSv1.3");
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "isSecure");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_TRUE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  ssl_protocol_guard.set(nullptr);
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "isSecure");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_FALSE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  duk_destroy_heap(ctx);
+}
+
 TEST(general, session_start_accepts_existing_valid_cookie_id)
 {
   EnvVarGuard cookie_guard("HTTP_COOKIE");
@@ -423,6 +478,149 @@ TEST(general, session_start_rejects_invalid_cookie_ids)
 
     duk_destroy_heap(ctx);
   }
+}
+
+TEST(general, session_start_rejects_missing_cookie)
+{
+  EnvVarGuard cookie_guard("HTTP_COOKIE");
+  cookie_guard.set(nullptr);
+
+  duk_context* ctx = duk_create_heap_default();
+  ASSERT_NE(ctx, nullptr);
+
+  duk_push_c_function(ctx, ccsp_session_module_open, 0);
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  duk_put_global_string(ctx, "ccsp_session");
+
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "start");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_FALSE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "getStatus");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_FALSE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  duk_destroy_heap(ctx);
+}
+
+TEST(general, session_start_rejects_cookie_from_other_scheme)
+{
+  EnvVarGuard cookie_guard("HTTP_COOKIE");
+  EnvVarGuard https_guard("HTTPS");
+  const std::string session_id = makeValidSessionId('D');
+  const std::string cookie = "DUKSID=" + session_id;
+  const std::string session_file = "/tmp/" + session_id;
+
+  FILE* file = fopen(session_file.c_str(), "w");
+  ASSERT_NE(file, nullptr);
+  fclose(file);
+  cookie_guard.set(cookie.c_str());
+  https_guard.set("on");
+
+  duk_context* ctx = duk_create_heap_default();
+  ASSERT_NE(ctx, nullptr);
+
+  duk_push_c_function(ctx, ccsp_session_module_open, 0);
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  duk_put_global_string(ctx, "ccsp_session");
+
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "start");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_FALSE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  EXPECT_EQ(access(session_file.c_str(), F_OK), 0);
+  unlink(session_file.c_str());
+  duk_destroy_heap(ctx);
+}
+
+TEST(general, session_get_data_without_session_returns_empty_object)
+{
+  EnvVarGuard cookie_guard("HTTP_COOKIE");
+  cookie_guard.set(nullptr);
+
+  duk_context* ctx = duk_create_heap_default();
+  ASSERT_NE(ctx, nullptr);
+
+  duk_push_c_function(ctx, ccsp_session_module_open, 0);
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  duk_put_global_string(ctx, "ccsp_session");
+
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "getData");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_TRUE(duk_is_object(ctx, -1));
+  duk_pop_2(ctx);
+
+  duk_destroy_heap(ctx);
+}
+
+TEST(general, session_destroy_without_session_returns_false)
+{
+  EnvVarGuard cookie_guard("HTTP_COOKIE");
+  cookie_guard.set(nullptr);
+
+  duk_context* ctx = duk_create_heap_default();
+  ASSERT_NE(ctx, nullptr);
+
+  duk_push_c_function(ctx, ccsp_session_module_open, 0);
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  duk_put_global_string(ctx, "ccsp_session");
+
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "destroy");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_FALSE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  duk_destroy_heap(ctx);
+}
+
+TEST(general, session_start_rejects_expired_session)
+{
+  EnvVarGuard cookie_guard("HTTP_COOKIE");
+  const std::string session_id = makeValidSessionId('C');
+  const std::string cookie = "DUKSID=" + session_id;
+  const std::string session_file = "/tmp/" + session_id;
+
+  FILE* file = fopen(session_file.c_str(), "w");
+  ASSERT_NE(file, nullptr);
+  fclose(file);
+  cookie_guard.set(cookie.c_str());
+
+  duk_context* ctx = duk_create_heap_default();
+  ASSERT_NE(ctx, nullptr);
+
+  duk_push_c_function(ctx, ccsp_session_module_open, 0);
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  duk_put_global_string(ctx, "ccsp_session");
+
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "start");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_TRUE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  ASSERT_EQ(unlink(session_file.c_str()), 0);
+
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "start");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_FALSE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  duk_get_global_string(ctx, "ccsp_session");
+  duk_get_prop_string(ctx, -1, "getStatus");
+  ASSERT_EQ(duk_pcall(ctx, 0), DUK_EXEC_SUCCESS);
+  EXPECT_FALSE(duk_get_boolean(ctx, -1));
+  duk_pop_2(ctx);
+
+  duk_destroy_heap(ctx);
 }
 
 TEST(general, session_start_rejects_missing_session_file)

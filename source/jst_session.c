@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <pthread.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -46,6 +47,9 @@
 #define SESSION_FILE_MAX_PATH 100
 #define SESSION_TMP_DIR "/tmp"
 #define SESSION_NUMBER_PRECISION 12
+#define SESSION_SCHEME_OFFSET SESSION_PREFIX_LEN
+#define SESSION_SCHEME_HTTP '0'
+#define SESSION_SCHEME_HTTPS '1'
 #define BYTE_TO_PRINTABLE_HEX_CODE(B) ( PRINTABLE_HEX_CODES[ (uint32_t)(B) % (uint32_t)(sizeof(PRINTABLE_HEX_CODES)-1) ] )
 
 /*
@@ -70,6 +74,35 @@
 */
 
 static char* session_identifier = NULL;
+
+static int request_is_https(void)
+{
+  const char* val;
+
+  val = getenv("HTTPS");
+  if(val && val[0])
+  {
+    if(strcasecmp(val, "on") == 0 || strcmp(val, "1") == 0 || strcasecmp(val, "true") == 0)
+      return 1;
+  }
+
+  val = getenv("REQUEST_SCHEME");
+  if(val && strcasecmp(val, "https") == 0)
+    return 1;
+
+  val = getenv("SSL_PROTOCOL");
+  if(val && val[0])
+    return 1;
+
+  return 0;
+}
+
+/*tags the first character after the prefix so an id captured on one scheme
+  cannot be replayed on the other*/
+static char request_session_scheme(void)
+{
+  return request_is_https() ? SESSION_SCHEME_HTTPS : SESSION_SCHEME_HTTP;
+}
 
 static int is_valid_session_identifier(const char* session_id)
 {
@@ -139,6 +172,9 @@ static duk_ret_t session_start(duk_context *ctx)
     if(utime(path, NULL) != 0)
     {
       CosaPhpExtLog("failed to update last accesstime on file %s: %s", path, strerror(errno));
+      /*the backing file is gone, drop the stale id so getStatus/getId stay in sync*/
+      free(session_identifier);
+      session_identifier = NULL;
       RETURN_FALSE;
     }
     RETURN_TRUE;
@@ -177,19 +213,26 @@ static duk_ret_t session_start(duk_context *ctx)
 
         if(is_valid_session_identifier(parsed_sesid))
         {
-          char filename[SESSION_FILE_MAX_PATH];
-          if(get_session_file_path(parsed_sesid, filename, sizeof(filename)))
+          if(parsed_sesid[SESSION_SCHEME_OFFSET] != request_session_scheme())
           {
-            CosaPhpExtLog("%s: Checking for Session file %s\n", __PRETTY_FUNCTION__, filename);
-            if(access(filename, F_OK) == 0)
+            CosaPhpExtLog("%s: SessionID scheme mismatch, rejecting\n", __PRETTY_FUNCTION__);
+          }
+          else
+          {
+            char filename[SESSION_FILE_MAX_PATH];
+            if(get_session_file_path(parsed_sesid, filename, sizeof(filename)))
             {
-              CosaPhpExtLog("%s: Session file %s exists\n", __PRETTY_FUNCTION__, filename);
-              memcpy(session_identifier, parsed_sesid, SESSION_ID_LENGTH);
-              session_identifier[SESSION_ID_LENGTH] = '\0';
-            }
-            else
-            {
-              CosaPhpExtLog("%s: Failed to read Session file %s\n", __PRETTY_FUNCTION__, filename);
+              CosaPhpExtLog("%s: Checking for Session file %s\n", __PRETTY_FUNCTION__, filename);
+              if(access(filename, F_OK) == 0)
+              {
+                CosaPhpExtLog("%s: Session file %s exists\n", __PRETTY_FUNCTION__, filename);
+                memcpy(session_identifier, parsed_sesid, SESSION_ID_LENGTH);
+                session_identifier[SESSION_ID_LENGTH] = '\0';
+              }
+              else
+              {
+                CosaPhpExtLog("%s: Failed to read Session file %s\n", __PRETTY_FUNCTION__, filename);
+              }
             }
           }
         }
@@ -240,6 +283,8 @@ static duk_ret_t session_create(duk_context *ctx)
     session_id[i] = BYTE_TO_PRINTABLE_HEX_CODE(bytes[i]);
   }
 
+  session_id[0] = request_session_scheme();
+
   if(session_identifier)
   {
     char filename[SESSION_FILE_MAX_PATH];
@@ -284,7 +329,9 @@ static duk_ret_t session_get_data(duk_context *ctx)
  
   if(session_identifier == NULL)
   {
-    RETURN_FALSE;
+    /*return an empty object so callers can safely read properties without a session*/
+    duk_push_object(ctx);
+    return 1;
   }
 
   valid = 0; /*valid becomes 1 only if we process a valid data file completely*/
@@ -495,6 +542,18 @@ static duk_ret_t session_get_status(duk_context *ctx)
   }
 }
 
+static duk_ret_t session_is_secure(duk_context *ctx)
+{
+  if(request_is_https())
+  {
+    RETURN_TRUE;
+  }
+  else
+  {
+    RETURN_FALSE;
+  }
+}
+
 static duk_ret_t session_destroy(duk_context *ctx)
 {
   char filename[SESSION_FILE_MAX_PATH];
@@ -530,6 +589,7 @@ static const duk_function_list_entry ccsp_session_funcs[] = {
   { "getData", session_get_data, 0 },
   { "setData", session_set_data, 1 },
   { "getStatus", session_get_status, 0 },
+  { "isSecure", session_is_secure, 0 },
   { "destroy", session_destroy, 0 },
   { NULL, NULL, 0 }
 };

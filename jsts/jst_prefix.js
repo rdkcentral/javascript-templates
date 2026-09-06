@@ -89,69 +89,90 @@ var $_SERVER = new Proxy({}, {
 var $_SESSION = {};
 var $_jst_session = null;
 var $_val_input = {};
+function _jst_session_cookie()
+{
+  var $cookie = "Set-Cookie: DUKSID=" + ccsp_session.getId() + "; httponly";
+  if(ccsp_session.isSecure())
+    $cookie += "; secure";
+  return $cookie;
+}
 function session_start()
 {
   if($_jst_session)
-    return;
+    return true;
   if($_val_input == 1) 
   {
     $_val_input = 0;
-    return;
+    return false;
   }
-  ccsp_session.start();
-  var host = getenv('HTTPS');
-  if (host == false)
-      var $cookie = "Set-Cookie: DUKSID=" + ccsp_session.getId() + "; httponly";
-  else
-      var $cookie = "Set-Cookie: DUKSID=" + ccsp_session.getId() + "; secure" + "; httponly";
-  header($cookie);
+  if(!ccsp_session.start())
+  {
+    /* A stale cookie must not create a proxy backed by an inactive session. */
+    $_jst_session = null;
+    $_SESSION = {};
+    return false;
+  }
+  if(ccsp_session.getStatus())
+  {
+    header(_jst_session_cookie());
+  }
   $_jst_session = ccsp_session.getData();
+  if($_jst_session === null || typeof($_jst_session) !== 'object')
+    $_jst_session = {};
   $_SESSION = new Proxy($_jst_session, {
     get: function(obj, prop) {
       return obj[prop];
     },
     set: function(obj, prop, val){
       obj[prop] = val;
-      ccsp_session.setData(obj);
+      if(ccsp_session.getStatus())
+        ccsp_session.setData(obj);
       return true;
     },
     deleteProperty(obj, prop) {
       if(prop in obj)
       {
         delete obj[prop];
-        ccsp_session.setData(obj);
+        if(ccsp_session.getStatus())
+          ccsp_session.setData(obj);
       }
       return true;
     }
   });
+  return true;
 }
 function session_create(){
-  ccsp_session.create();
-  var host = getenv('HTTPS');
-  if (host == false)
-    var $cookie = "Set-Cookie: DUKSID=" + ccsp_session.getId() + "; httponly";
-  else
-    var $cookie = "Set-Cookie: DUKSID=" + ccsp_session.getId() + "; secure" + "; httponly";
-  header($cookie);
+  if(!ccsp_session.create())
+  {
+    $_jst_session = null;
+    $_SESSION = {};
+    return false;
+  }
+  header(_jst_session_cookie());
   $_jst_session = ccsp_session.getData();
+  if($_jst_session === null || typeof($_jst_session) !== 'object')
+    $_jst_session = {};
   $_SESSION = new Proxy($_jst_session, {
     get: function(obj, prop) {
       return obj[prop];
     },
     set: function(obj, prop, val){
       obj[prop] = val;
-      ccsp_session.setData(obj);
+      if(ccsp_session.getStatus())
+        ccsp_session.setData(obj);
       return true;
     },
     deleteProperty(obj, prop) {
       if(prop in obj)
       {
         delete obj[prop];
-        ccsp_session.setData(obj);
+        if(ccsp_session.getStatus())
+          ccsp_session.setData(obj);
       }
       return true;
     }
   });
+  return true;
 }
 function session_id()
 {
@@ -170,7 +191,14 @@ function session_destroy()
   return ccsp_session.destroy();
 }
 function session_unset()
-{//FIXME
+{
+  if(!$_jst_session || !ccsp_session.getStatus())
+    return false;
+
+  for(var $key in $_jst_session)
+    delete $_jst_session[$key];
+
+  return ccsp_session.setData($_jst_session);
 }
 function session_print()
 {
