@@ -93,7 +93,7 @@ function session_start()
 {
   if($_jst_session)
     return;
-  if($_val_input == 1) 
+  if($_val_input == 1)
   {
     $_val_input = 0;
     return;
@@ -186,11 +186,11 @@ if(postData)
   var postValues = postData.split('&');
   for(var i = 0; i < postValues.length; ++i)
   {
-    var postValue = postValues[i].split('=');
-    if(postValue.length == 2)
+    var eqIdx = postValues[i].indexOf('=');
+    if(eqIdx != -1)
     {
-      var value = postValue[1].replace(/[+]/g," ");
-      $_POST[postValue[0]] = decodeURIComponent(value);
+      var value = postValues[i].substring(eqIdx + 1).replace(/[+]/g," ");
+      $_POST[postValues[i].substring(0, eqIdx)] = decodeURIComponent(value);
     }
     else
     {
@@ -212,17 +212,17 @@ if(filesData)
     var fileId = null;
     for(var j = 0; j < fileData.length; ++j)
     {
-      var fileValue = fileData[j].split('=');
-      if(fileValue.length == 2)
+      var eqIdx = fileData[j].indexOf('=');
+      if(eqIdx != -1)
       {
         if(!fileId)
         {
-          fileId = decodeURIComponent(fileValue[1]);
+          fileId = decodeURIComponent(fileData[j].substring(eqIdx + 1));
           $_FILES[fileId]={};
         }
         else
         {
-          $_FILES[fileId][decodeURIComponent(fileValue[0])]=decodeURIComponent(fileValue[1]);
+          $_FILES[fileId][decodeURIComponent(fileData[j].substring(0, eqIdx))]=decodeURIComponent(fileData[j].substring(eqIdx + 1));
         }
       }
       else
@@ -241,10 +241,10 @@ $_GET= (function ()
     var ar = qs.split('&');
     for(var i=0; i<ar.length; ++i)
     {
-      var ar2 = ar[i].split('=');
-      if(ar2.length != 2)
+      var eqIdx = ar[i].indexOf('=');
+      if(eqIdx == -1)
         throw Error("$_GET: Invalid QUERY_STRING");
-      out[ar2[0]] = ar2[1];
+      out[ar[i].substring(0, eqIdx)] = ar[i].substring(eqIdx + 1);
     }
   }
   return out;
