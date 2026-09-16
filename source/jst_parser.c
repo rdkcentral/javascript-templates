@@ -760,7 +760,7 @@ static int template_process(char** buf, size_t* buflen, int top)
   char filepath[MAX_PATH_LEN];
   growing_buffer tbuf1;
   growing_buffer tbuf2;
-  char TEMPL_PATH[MAX_PATH_LEN] = "/usr/video_analytics/";
+  char TEMPL_PATH[MAX_PATH_LEN] = "/var/video_analytics/";
   buffer_init(&tbuf1);
   buffer_init(&tbuf2);
 
