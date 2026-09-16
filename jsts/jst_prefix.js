@@ -89,69 +89,104 @@ var $_SERVER = new Proxy({}, {
 var $_SESSION = {};
 var $_jst_session = null;
 var $_val_input = {};
+function _jst_session_cookie()
+{
+  var $cookie = "Set-Cookie: DUKSID=" + ccsp_session.getId() + "; httponly";
+  if(ccsp_session.isSecure())
+    $cookie += "; secure";
+  return $cookie;
+}
+function _jst_expire_session_cookie()
+{
+  var $cookie = "Set-Cookie: DUKSID=; Max-Age=0; httponly";
+  if(ccsp_session.isSecure())
+    $cookie += "; secure";
+  return $cookie;
+}
 function session_start()
 {
   if($_jst_session)
-    return;
-  if($_val_input == 1) 
+  {
+    if(ccsp_session.start())
+      return true;
+
+    $_jst_session = null;
+    $_SESSION = {};
+    return false;
+  }
+  if($_val_input == 1)
   {
     $_val_input = 0;
-    return;
+    return false;
   }
-  ccsp_session.start();
-  var host = getenv('HTTPS');
-  if (host == false)
-      var $cookie = "Set-Cookie: DUKSID=" + ccsp_session.getId() + "; httponly";
-  else
-      var $cookie = "Set-Cookie: DUKSID=" + ccsp_session.getId() + "; secure" + "; httponly";
-  header($cookie);
+  if(!ccsp_session.start())
+  {
+    /* A stale cookie must not create a proxy backed by an inactive session. */
+    $_jst_session = null;
+    $_SESSION = {};
+    return false;
+  }
+  if(ccsp_session.getStatus())
+  {
+    header(_jst_session_cookie());
+  }
   $_jst_session = ccsp_session.getData();
+  if($_jst_session === null || typeof($_jst_session) !== 'object')
+    $_jst_session = {};
   $_SESSION = new Proxy($_jst_session, {
     get: function(obj, prop) {
       return obj[prop];
     },
     set: function(obj, prop, val){
       obj[prop] = val;
-      ccsp_session.setData(obj);
+      if(ccsp_session.getStatus())
+        ccsp_session.setData(obj);
       return true;
     },
     deleteProperty(obj, prop) {
       if(prop in obj)
       {
         delete obj[prop];
-        ccsp_session.setData(obj);
+        if(ccsp_session.getStatus())
+          ccsp_session.setData(obj);
       }
       return true;
     }
   });
+  return true;
 }
 function session_create(){
-  ccsp_session.create();
-  var host = getenv('HTTPS');
-  if (host == false)
-    var $cookie = "Set-Cookie: DUKSID=" + ccsp_session.getId() + "; httponly";
-  else
-    var $cookie = "Set-Cookie: DUKSID=" + ccsp_session.getId() + "; secure" + "; httponly";
-  header($cookie);
+  if(!ccsp_session.create())
+  {
+    $_jst_session = null;
+    $_SESSION = {};
+    return false;
+  }
+  header(_jst_session_cookie());
   $_jst_session = ccsp_session.getData();
+  if($_jst_session === null || typeof($_jst_session) !== 'object')
+    $_jst_session = {};
   $_SESSION = new Proxy($_jst_session, {
     get: function(obj, prop) {
       return obj[prop];
     },
     set: function(obj, prop, val){
       obj[prop] = val;
-      ccsp_session.setData(obj);
+      if(ccsp_session.getStatus())
+        ccsp_session.setData(obj);
       return true;
     },
     deleteProperty(obj, prop) {
       if(prop in obj)
       {
         delete obj[prop];
-        ccsp_session.setData(obj);
+        if(ccsp_session.getStatus())
+          ccsp_session.setData(obj);
       }
       return true;
     }
   });
+  return true;
 }
 function session_id()
 {
@@ -163,6 +198,7 @@ function session_status()
 }
 function session_destroy()
 {
+  header(_jst_expire_session_cookie());
   delete $_jst_session;
   $_jst_session = null;
   delete $_SESSION;
@@ -170,7 +206,14 @@ function session_destroy()
   return ccsp_session.destroy();
 }
 function session_unset()
-{//FIXME
+{
+  if(!$_jst_session || !ccsp_session.getStatus())
+    return false;
+
+  for(var $key in $_jst_session)
+    delete $_jst_session[$key];
+
+  return ccsp_session.setData($_jst_session);
 }
 function session_print()
 {
@@ -186,11 +229,11 @@ if(postData)
   var postValues = postData.split('&');
   for(var i = 0; i < postValues.length; ++i)
   {
-    var postValue = postValues[i].split('=');
-    if(postValue.length == 2)
+    var eqIdx = postValues[i].indexOf('=');
+    if(eqIdx != -1)
     {
-      var value = postValue[1].replace(/[+]/g," ");
-      $_POST[postValue[0]] = decodeURIComponent(value);
+      var value = postValues[i].substring(eqIdx + 1).replace(/[+]/g," ");
+      $_POST[postValues[i].substring(0, eqIdx)] = decodeURIComponent(value);
     }
     else
     {
@@ -212,17 +255,17 @@ if(filesData)
     var fileId = null;
     for(var j = 0; j < fileData.length; ++j)
     {
-      var fileValue = fileData[j].split('=');
-      if(fileValue.length == 2)
+      var eqIdx = fileData[j].indexOf('=');
+      if(eqIdx != -1)
       {
         if(!fileId)
         {
-          fileId = decodeURIComponent(fileValue[1]);
+          fileId = decodeURIComponent(fileData[j].substring(eqIdx + 1));
           $_FILES[fileId]={};
         }
         else
         {
-          $_FILES[fileId][decodeURIComponent(fileValue[0])]=decodeURIComponent(fileValue[1]);
+          $_FILES[fileId][decodeURIComponent(fileData[j].substring(0, eqIdx))]=decodeURIComponent(fileData[j].substring(eqIdx + 1));
         }
       }
       else
@@ -241,10 +284,10 @@ $_GET= (function ()
     var ar = qs.split('&');
     for(var i=0; i<ar.length; ++i)
     {
-      var ar2 = ar[i].split('=');
-      if(ar2.length != 2)
+      var eqIdx = ar[i].indexOf('=');
+      if(eqIdx == -1)
         throw Error("$_GET: Invalid QUERY_STRING");
-      out[ar2[0]] = ar2[1];
+      out[ar[i].substring(0, eqIdx)] = ar[i].substring(eqIdx + 1);
     }
   }
   return out;
