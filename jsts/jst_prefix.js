@@ -89,69 +89,102 @@ var $_SERVER = new Proxy({}, {
 var $_SESSION = {};
 var $_jst_session = null;
 var $_val_input = {};
-function session_start()
+function _jst_session_cookie()
 {
-  if($_jst_session)
-    return;
-  if($_val_input == 1) 
-  {
-    $_val_input = 0;
-    return;
-  }
-  ccsp_session.start();
-  var host = getenv('HTTPS');
-  if (host == false)
-      var $cookie = "Set-Cookie: DUKSID=" + ccsp_session.getId() + "; httponly";
-  else
-      var $cookie = "Set-Cookie: DUKSID=" + ccsp_session.getId() + "; secure" + "; httponly";
-  header($cookie);
-  $_jst_session = ccsp_session.getData();
-  $_SESSION = new Proxy($_jst_session, {
+  var $cookie = "Set-Cookie: DUKSID=" + ccsp_session.getId() + "; httponly";
+  if(ccsp_session.isSecure())
+    $cookie += "; secure";
+  return $cookie;
+}
+function _jst_expire_session_cookie()
+{
+  var $cookie = "Set-Cookie: DUKSID=; Max-Age=0; httponly";
+  if(ccsp_session.isSecure())
+    $cookie += "; secure";
+  return $cookie;
+}
+function _jst_session_is_current($session_id)
+{
+  if(!ccsp_session.getStatus() || ccsp_session.getId() !== $session_id)
+    return false;
+
+  if(ccsp_session.start() && ccsp_session.getId() === $session_id)
+    return true;
+
+  $_jst_session = null;
+  $_SESSION = {};
+  return false;
+}
+function _jst_session_proxy($session)
+{
+  var $session_id = ccsp_session.getId();
+  return new Proxy($session, {
     get: function(obj, prop) {
       return obj[prop];
     },
     set: function(obj, prop, val){
       obj[prop] = val;
-      ccsp_session.setData(obj);
+      if(_jst_session_is_current($session_id))
+        ccsp_session.setData(obj);
       return true;
     },
     deleteProperty(obj, prop) {
       if(prop in obj)
       {
         delete obj[prop];
-        ccsp_session.setData(obj);
+        if(_jst_session_is_current($session_id))
+          ccsp_session.setData(obj);
       }
       return true;
     }
   });
 }
-function session_create(){
-  ccsp_session.create();
-  var host = getenv('HTTPS');
-  if (host == false)
-    var $cookie = "Set-Cookie: DUKSID=" + ccsp_session.getId() + "; httponly";
-  else
-    var $cookie = "Set-Cookie: DUKSID=" + ccsp_session.getId() + "; secure" + "; httponly";
-  header($cookie);
+function session_start()
+{
+  if($_jst_session)
+  {
+    if(ccsp_session.start())
+      return true;
+
+    $_jst_session = null;
+    $_SESSION = {};
+    return false;
+  }
+  if($_val_input == 1)
+  {
+    $_val_input = 0;
+    return false;
+  }
+  if(!ccsp_session.start())
+  {
+    /* A stale cookie must not create a proxy backed by an inactive session. */
+    $_jst_session = null;
+    $_SESSION = {};
+    return false;
+  }
+  if(ccsp_session.getStatus())
+  {
+    header(_jst_session_cookie());
+  }
   $_jst_session = ccsp_session.getData();
-  $_SESSION = new Proxy($_jst_session, {
-    get: function(obj, prop) {
-      return obj[prop];
-    },
-    set: function(obj, prop, val){
-      obj[prop] = val;
-      ccsp_session.setData(obj);
-      return true;
-    },
-    deleteProperty(obj, prop) {
-      if(prop in obj)
-      {
-        delete obj[prop];
-        ccsp_session.setData(obj);
-      }
-      return true;
-    }
-  });
+  if($_jst_session === null || typeof($_jst_session) !== 'object')
+    $_jst_session = {};
+  $_SESSION = _jst_session_proxy($_jst_session);
+  return true;
+}
+function session_create(){
+  if(!ccsp_session.create())
+  {
+    $_jst_session = null;
+    $_SESSION = {};
+    return false;
+  }
+  header(_jst_session_cookie());
+  $_jst_session = ccsp_session.getData();
+  if($_jst_session === null || typeof($_jst_session) !== 'object')
+    $_jst_session = {};
+  $_SESSION = _jst_session_proxy($_jst_session);
+  return true;
 }
 function session_id()
 {
@@ -163,6 +196,7 @@ function session_status()
 }
 function session_destroy()
 {
+  header(_jst_expire_session_cookie());
   delete $_jst_session;
   $_jst_session = null;
   delete $_SESSION;
@@ -170,7 +204,15 @@ function session_destroy()
   return ccsp_session.destroy();
 }
 function session_unset()
-{//FIXME
+{
+  var $session_id = ccsp_session.getId();
+  if(!$_jst_session || !_jst_session_is_current($session_id))
+    return false;
+
+  for(var $key in $_jst_session)
+    delete $_jst_session[$key];
+
+  return ccsp_session.setData($_jst_session);
 }
 function session_print()
 {

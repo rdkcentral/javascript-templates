@@ -21,12 +21,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <pthread.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <time.h>
 #include <ctype.h>
+#include <fcntl.h>
 #include "jst_internal.h"
 #include <sys/sysinfo.h>
 #include <stdint.h>
@@ -46,6 +49,9 @@
 #define SESSION_FILE_MAX_PATH 100
 #define SESSION_TMP_DIR "/tmp"
 #define SESSION_NUMBER_PRECISION 12
+#define SESSION_SCHEME_OFFSET SESSION_PREFIX_LEN
+#define SESSION_SCHEME_HTTP '0'
+#define SESSION_SCHEME_HTTPS '1'
 #define BYTE_TO_PRINTABLE_HEX_CODE(B) ( PRINTABLE_HEX_CODES[ (uint32_t)(B) % (uint32_t)(sizeof(PRINTABLE_HEX_CODES)-1) ] )
 
 /*
@@ -70,6 +76,35 @@
 */
 
 static char* session_identifier = NULL;
+
+static int request_is_https(void)
+{
+  const char* val;
+
+  val = getenv("HTTPS");
+  if(val && val[0])
+  {
+    if(strcasecmp(val, "on") == 0 || strcmp(val, "1") == 0 || strcasecmp(val, "true") == 0)
+      return 1;
+  }
+
+  val = getenv("REQUEST_SCHEME");
+  if(val && strcasecmp(val, "https") == 0)
+    return 1;
+
+  val = getenv("SSL_PROTOCOL");
+  if(val && val[0])
+    return 1;
+
+  return 0;
+}
+
+/*tags the first character after the prefix so an id captured on one scheme
+  cannot be replayed on the other*/
+static char request_session_scheme(void)
+{
+  return request_is_https() ? SESSION_SCHEME_HTTPS : SESSION_SCHEME_HTTP;
+}
 
 static int is_valid_session_identifier(const char* session_id)
 {
@@ -119,11 +154,47 @@ static int get_session_file_path(const char* session_id, char* path, size_t path
   return 1;
 }
 
+static int get_session_id_cookie(const char* cookie, const char** value, size_t* value_len)
+{
+  const char* field = cookie;
+  const char* matched_value = NULL;
+  size_t matched_value_len = 0;
+
+  while(field)
+  {
+    const char* field_end = strchr(field, ';');
+    const char* field_start = field;
+    const char* value_end = field_end ? field_end : field + strlen(field);
+
+    while(field_start < value_end && (*field_start == ' ' || *field_start == '\t'))
+      field_start++;
+
+    while(value_end > field_start &&
+          (value_end[-1] == ' ' || value_end[-1] == '\t'))
+      value_end--;
+
+    if((size_t)(value_end - field_start) >= 7 &&
+       strncmp(field_start, "DUKSID=", 7) == 0)
+    {
+      matched_value = field_start + 7;
+      matched_value_len = (size_t)(value_end - matched_value);
+    }
+
+    field = field_end ? field_end + 1 : NULL;
+  }
+
+  if(!matched_value)
+    return 0;
+
+  *value = matched_value;
+  *value_len = matched_value_len;
+  return 1;
+}
+
 static duk_ret_t session_start(duk_context *ctx)
 {
   CosaPhpExtLog("%s: entered\n", __PRETTY_FUNCTION__);
   const char* cookie;
-  const char* sesid_end;
   size_t sesid_len;
   char parsed_sesid[SESSION_ID_LENGTH + 1];
   /* if session already created then do nothing */
@@ -139,6 +210,9 @@ static duk_ret_t session_start(duk_context *ctx)
     if(utime(path, NULL) != 0)
     {
       CosaPhpExtLog("failed to update last accesstime on file %s: %s", path, strerror(errno));
+      /*the backing file is gone, drop the stale id so getStatus/getId stay in sync*/
+      free(session_identifier);
+      session_identifier = NULL;
       RETURN_FALSE;
     }
     RETURN_TRUE;
@@ -158,18 +232,10 @@ static duk_ret_t session_start(duk_context *ctx)
     CosaPhpExtLog("%s: cookie %s\n", __PRETTY_FUNCTION__, cookie);
     /*load session id from cookie*/
     const char* sesid = NULL;
-    const char* tmp = cookie;
-    while (tmp = strstr(tmp, "DUKSID="))
+    if(get_session_id_cookie(cookie, &sesid, &sesid_len))
     {
-      sesid= tmp;
-      tmp++;
-    }
-    CosaPhpExtLog("%s: sesid %s\n", __PRETTY_FUNCTION__, sesid);
-    if(sesid)
-    {
-      sesid += 7;
-      sesid_end = strchr(sesid, ';');
-      sesid_len = sesid_end ? (size_t)(sesid_end - sesid) : strlen(sesid);
+      CosaPhpExtLog("%s: sesid %.*s\n", __PRETTY_FUNCTION__,
+                    (int)sesid_len, sesid);
       if(sesid_len == SESSION_ID_LENGTH)
       {
         memcpy(parsed_sesid, sesid, SESSION_ID_LENGTH);
@@ -177,19 +243,26 @@ static duk_ret_t session_start(duk_context *ctx)
 
         if(is_valid_session_identifier(parsed_sesid))
         {
-          char filename[SESSION_FILE_MAX_PATH];
-          if(get_session_file_path(parsed_sesid, filename, sizeof(filename)))
+          if(parsed_sesid[SESSION_SCHEME_OFFSET] != request_session_scheme())
           {
-            CosaPhpExtLog("%s: Checking for Session file %s\n", __PRETTY_FUNCTION__, filename);
-            if(access(filename, F_OK) == 0)
+            CosaPhpExtLog("%s: SessionID scheme mismatch, rejecting\n", __PRETTY_FUNCTION__);
+          }
+          else
+          {
+            char filename[SESSION_FILE_MAX_PATH];
+            if(get_session_file_path(parsed_sesid, filename, sizeof(filename)))
             {
-              CosaPhpExtLog("%s: Session file %s exists\n", __PRETTY_FUNCTION__, filename);
-              memcpy(session_identifier, parsed_sesid, SESSION_ID_LENGTH);
-              session_identifier[SESSION_ID_LENGTH] = '\0';
-            }
-            else
-            {
-              CosaPhpExtLog("%s: Failed to read Session file %s\n", __PRETTY_FUNCTION__, filename);
+              CosaPhpExtLog("%s: Checking for Session file %s\n", __PRETTY_FUNCTION__, filename);
+              if(access(filename, F_OK) == 0)
+              {
+                CosaPhpExtLog("%s: Session file %s exists\n", __PRETTY_FUNCTION__, filename);
+                memcpy(session_identifier, parsed_sesid, SESSION_ID_LENGTH);
+                session_identifier[SESSION_ID_LENGTH] = '\0';
+              }
+              else
+              {
+                CosaPhpExtLog("%s: Failed to read Session file %s\n", __PRETTY_FUNCTION__, filename);
+              }
             }
           }
         }
@@ -217,8 +290,11 @@ static duk_ret_t session_create(duk_context *ctx)
   /*create a new one*/
   static const char PRINTABLE_HEX_CODES[] = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
   int i = 0, n = 0;
+  int fd;
   uint8_t bytes[SESSION_ID_BYTES_LENGTH];
   char* session_id = NULL;
+  char* new_session_identifier = NULL;
+  char filename[SESSION_FILE_MAX_PATH];
 
   session_id = (char*)malloc(SESSION_ID_BYTES_LENGTH+1);
   if(!session_id)
@@ -240,27 +316,48 @@ static duk_ret_t session_create(duk_context *ctx)
     session_id[i] = BYTE_TO_PRINTABLE_HEX_CODE(bytes[i]);
   }
 
-  if(session_identifier)
-  {
-    char filename[SESSION_FILE_MAX_PATH];
-    if(get_session_file_path(session_identifier, filename, sizeof(filename)))
-      unlink(filename);
-    free(session_identifier);
-    session_identifier = NULL;
-  }
+  session_id[0] = request_session_scheme();
 
-  session_identifier = (char*)malloc(SESSION_ID_LENGTH+1);
-  if(!session_identifier)
+  new_session_identifier = (char*)malloc(SESSION_ID_LENGTH+1);
+  if(!new_session_identifier)
   {
-    CosaPhpExtLog("Failed to allocate session_identifier!\n");
+    CosaPhpExtLog("Failed to allocate new_session_identifier!\n");
     free(session_id);
     RETURN_FALSE;
   }
-  memset(session_identifier, 0, SESSION_ID_LENGTH+1);
 
   session_id[SESSION_ID_BYTES_LENGTH] = '\0';
-  snprintf(session_identifier, SESSION_ID_LENGTH+1, "%s%s", SESSION_PREFIX, session_id);
+  snprintf(new_session_identifier, SESSION_ID_LENGTH+1, "%s%s", SESSION_PREFIX, session_id);
   free(session_id);
+
+  if(!get_session_file_path(new_session_identifier, filename, sizeof(filename)))
+  {
+    free(new_session_identifier);
+    RETURN_FALSE;
+  }
+
+  fd = open(filename, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+  if(fd < 0)
+  {
+    CosaPhpExtLog("Failed to create session file %s: %s\n", filename, strerror(errno));
+    free(new_session_identifier);
+    RETURN_FALSE;
+  }
+  if(close(fd) != 0)
+  {
+    CosaPhpExtLog("Failed to close session file %s: %s\n", filename, strerror(errno));
+    unlink(filename);
+    free(new_session_identifier);
+    RETURN_FALSE;
+  }
+
+  if(session_identifier)
+  {
+    if(get_session_file_path(session_identifier, filename, sizeof(filename)))
+      unlink(filename);
+    free(session_identifier);
+  }
+  session_identifier = new_session_identifier;
 
   RETURN_TRUE;
   return 1;
@@ -284,7 +381,9 @@ static duk_ret_t session_get_data(duk_context *ctx)
  
   if(session_identifier == NULL)
   {
-    RETURN_FALSE;
+    /*return an empty object so callers can safely read properties without a session*/
+    duk_push_object(ctx);
+    return 1;
   }
 
   valid = 0; /*valid becomes 1 only if we process a valid data file completely*/
@@ -495,6 +594,18 @@ static duk_ret_t session_get_status(duk_context *ctx)
   }
 }
 
+static duk_ret_t session_is_secure(duk_context *ctx)
+{
+  if(request_is_https())
+  {
+    RETURN_TRUE;
+  }
+  else
+  {
+    RETURN_FALSE;
+  }
+}
+
 static duk_ret_t session_destroy(duk_context *ctx)
 {
   char filename[SESSION_FILE_MAX_PATH];
@@ -530,6 +641,7 @@ static const duk_function_list_entry ccsp_session_funcs[] = {
   { "getData", session_get_data, 0 },
   { "setData", session_set_data, 1 },
   { "getStatus", session_get_status, 0 },
+  { "isSecure", session_is_secure, 0 },
   { "destroy", session_destroy, 0 },
   { NULL, NULL, 0 }
 };

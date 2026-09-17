@@ -77,6 +77,8 @@ add_executable(
   ../source/jst_session.c
   ../source/jst_internal.c
   ../source/duktape/duktape.c)
+target_compile_definitions(parser_test PRIVATE
+  JST_PREFIX_PATH=\"${CMAKE_SOURCE_DIR}/jsts/jst_prefix.js\")
 target_link_libraries(parser_test libgtest libgmock -pthread)
 install(DIRECTORY parser DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
