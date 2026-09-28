@@ -283,10 +283,14 @@ $_GET= (function ()
     var ar = qs.split('&');
     for(var i=0; i<ar.length; ++i)
     {
-      var eqIdx = ar[i].indexOf('=');
+      var part = ar[i];
+      if(part === "")
+        continue;
+      var eqIdx = part.indexOf('=');
       if(eqIdx == -1)
-        throw Error("$_GET: Invalid QUERY_STRING");
-      out[ar[i].substring(0, eqIdx)] = ar[i].substring(eqIdx + 1);
+        out[part] = "";
+      else
+        out[part.substring(0, eqIdx)] = part.substring(eqIdx + 1);
     }
   }
   return out;
