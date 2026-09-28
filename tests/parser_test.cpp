@@ -356,6 +356,30 @@ TEST(general, prefix_preserves_equals_signs_in_request_values)
   duk_destroy_heap(ctx);
 }
 
+TEST(general, prefix_get_tolerates_trailing_ampersand_and_valueless_params)
+{
+  EnvVarGuard query_string_guard("QUERY_STRING");
+  query_string_guard.set("mac_ssid=&");
+
+  duk_context* ctx = duk_create_heap_default();
+  ASSERT_NE(ctx, nullptr);
+  evaluatePrefixWithRequestData(ctx, nullptr, nullptr);
+
+  EXPECT_TRUE(evaluateJavaScriptBoolean(ctx, "$_GET.mac_ssid === ''"));
+
+  duk_destroy_heap(ctx);
+
+  query_string_guard.set("mac_ssid");
+
+  duk_context* ctx2 = duk_create_heap_default();
+  ASSERT_NE(ctx2, nullptr);
+  evaluatePrefixWithRequestData(ctx2, nullptr, nullptr);
+
+  EXPECT_TRUE(evaluateJavaScriptBoolean(ctx2, "$_GET.mac_ssid === ''"));
+
+  duk_destroy_heap(ctx2);
+}
+
 TEST(general, session_create_multiple_calls_succeed)
 {
   duk_context* ctx = duk_create_heap_default();
