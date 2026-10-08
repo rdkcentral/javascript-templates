@@ -35,8 +35,6 @@ jobs:
           # Build component
           chmod +x build_tools_workflows/cov_docker_script/build_native.sh
           ./build_tools_workflows/cov_docker_script/build_native.sh ./cov_docker_script/component_config.json "$(pwd)"
-        env:
-          GITHUB_TOKEN: ${{ secrets.RDKCM_RDKE }}
 
   build-jst-on-pr:
     name: Build javascript-templates component on PR
@@ -62,8 +60,6 @@ jobs:
           # Build component
           chmod +x build_tools_workflows/cov_docker_script/build_native.sh
           ./build_tools_workflows/cov_docker_script/build_native.sh ./cov_docker_script/component_config.json "$(pwd)"
-        env:
-          GITHUB_TOKEN: ${{ secrets.RDKCM_RDKE }}
 
   detect-source-changes:
     name: Detect source path changes for CodeQL
@@ -146,8 +142,6 @@ jobs:
           ./build_tools_workflows/cov_docker_script/setup_dependencies.sh ./cov_docker_script/component_config.json
           chmod +x build_tools_workflows/cov_docker_script/build_native.sh
           ./build_tools_workflows/cov_docker_script/build_native.sh ./cov_docker_script/component_config.json "$(pwd)"
-        env:
-          GITHUB_TOKEN: ${{ secrets.RDKCM_RDKE }}
 
       - name: Analyze C/C++
         uses: github/codeql-action/analyze@v4
