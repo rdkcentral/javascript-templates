@@ -23,7 +23,6 @@
 #include <sys/stat.h>
 
 #define COSA_PHP_EXT_LOG_FILE_NAME  "/var/log/cosa_php_ext.log"
-#define COSA_PHP_EXT_DEBUG_FILE "/tmp/cosa_php_debug"
 static int debugFlag = 0;
 
 void CosaPhpExtLog(const char* format, ...)
@@ -64,14 +63,16 @@ void CosaPhpExtLog(const char* format, ...)
 
 void init_logger()
 {
+#ifdef COSA_PHP_EXT_DEBUG
   FILE *fp = NULL;
   /* If file exists, we'll open the debug flag */
-  fp = fopen(COSA_PHP_EXT_DEBUG_FILE, "r");
+  fp = fopen("/tmp/cosa_php_debug", "r");
   if (fp)
   {
     debugFlag = 1;
     fclose(fp);
   }
+#endif
 }
 
 int parse_parameter(const char* func, duk_context *ctx, const char* types, ...)

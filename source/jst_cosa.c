@@ -32,7 +32,6 @@
 #define COMPONENT_NAME              "ccsp.phpextension"
 #define CONF_FILENAME               "/tmp/ccsp_msg.cfg"
 #define CCSP_COMPONENT_ID_WebUI     0x00000001
-#define COSA_PHP_EXT_PCSIM          "/tmp/cosa_php_pcsim"
 
 void * bus_handle                 = NULL;
 char * dst_componentid            = NULL;
@@ -109,16 +108,18 @@ void CheckAndSetSubsystemPrefix (char** ppDotStr, char* pSubSystemPrefix)
 
 int cosa_init()
 {
-  FILE *fp = NULL;
   int iReturnStatus = 0;
   
+#ifdef COSA_PHP_EXT_PC_SIMULATION
+    FILE *fp = NULL;
   /* Check if this is a PC simulation */
-  fp = fopen(COSA_PHP_EXT_PCSIM, "r");
+    fp = fopen("/tmp/cosa_php_pcsim", "r");
   if (fp)
   {
     gPcSim = 1;
     fclose(fp);
   }
+#endif
   
   bus_handle = NULL;
   /*

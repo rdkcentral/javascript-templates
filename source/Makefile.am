@@ -30,6 +30,8 @@ jst_CPPFLAGS += -DDUK_CMDLINE_CONSOLE_SUPPORT
 jst_CPPFLAGS += -DDUK_CMDLINE_LOGGING_SUPPORT
 jst_CPPFLAGS += -DDUK_CMDLINE_MODULE_SUPPORT
 jst_CPPFLAGS += -I$(top_srcdir)/source -I$(top_srcdir)/source/duktape $(CPPFLAGS)
+# Enable optional debug logging and PC simulation during build with:
+# jst_CPPFLAGS += -DCOSA_PHP_EXT_DEBUG -DCOSA_PHP_EXT_PC_SIMULATION
 jst_SOURCES = jst_parser.c  jst_cosa.c jst_session.c jst_post.c jst_functions.c jst_internal.c jst_extensions.c $(top_srcdir)/source/duktape/duktape.c $(top_srcdir)/source/duktape/duk_cmdline.c $(top_srcdir)/source/duktape/duk_print_alert.c $(top_srcdir)/source/duktape/duk_console.c $(top_srcdir)/source/duktape/duk_logging.c $(top_srcdir)/source/duktape/duk_module_duktape.c
 jst_LDFLAGS = -lccsp_common -lm -lcrypto $(LDFLAGS)
 
